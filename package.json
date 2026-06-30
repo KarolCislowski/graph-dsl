@@ -1,6 +1,7 @@
 {
   "name": "graph-dsl",
   "version": "0.1.0",
+  "private": true,
   "description": "A typed graph query DSL that emits a portable AST and compiles to graph backends.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -18,6 +19,7 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
+    "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
