@@ -1,0 +1,38 @@
+{
+  "name": "graph-dsl",
+  "version": "0.1.0",
+  "description": "A typed graph query DSL that emits a portable AST and compiles to graph backends.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "graph",
+    "dsl",
+    "cypher",
+    "gremlin",
+    "neo4j"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsup": "^8.1.0",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0"
+  }
+}
