@@ -17,6 +17,9 @@ import type {
 export type CypherCompileOptions = {
   /**
    * Runtime parameters to carry into the compiled result.
+   *
+   * Named `param(...)` expressions reference values from this object. Bulk
+   * operations can pass arrays of row objects for `unwind(param("items"), ...)`.
    */
   params?: Record<string, ParameterValue>;
 };
@@ -26,6 +29,8 @@ export type CypherCompileOptions = {
  *
  * Named parameters created with `param("name")` are emitted as `$name`.
  * Primitive literals are converted to generated parameters such as `$p0`.
+ * Row property expressions created with `row("item", "field")` are emitted as
+ * property lookups on the current unwound row, such as `item.field`.
  *
  * @param ast - Query AST produced by the DSL.
  * @param options - Optional compiler settings and initial parameters.

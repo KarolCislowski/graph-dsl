@@ -352,6 +352,144 @@ WHERE u.email = $email
 DELETE u
 ```
 
+## Runtime Schemas
+
+You can describe node and edge properties with a serializable JSON schema. This is useful when schemas are stored outside the codebase, for example in MongoDB.
+
+```ts
+import { compileCypher, defineNodeFromJson, query } from "graph-dsl";
+
+const schemaDoc = {
+  kind: "node",
+  label: "Person",
+  fields: {
+    id: { type: "string", required: true },
+    name: { type: "string", required: true },
+    age: { type: "number" },
+    active: { type: "boolean" },
+  },
+} as const;
+
+const Person = defineNodeFromJson(schemaDoc);
+```
+
+Map a plain JavaScript object, such as form data, to a DSL node and generated params:
+
+```ts
+const mapped = Person.from("p", {
+  id: "person-1",
+  name: "Ada",
+  age: 36,
+  active: true,
+});
+
+const ast = query()
+  .create(mapped.node)
+  .toAst();
+
+const result = compileCypher(ast, {
+  params: mapped.params,
+});
+```
+
+Cypher output:
+
+```cypher
+CREATE (p:Person { id: $p_id, name: $p_name, age: $p_age, active: $p_active })
+```
+
+Generated params:
+
+```ts
+{
+  p_id: "person-1",
+  p_name: "Ada",
+  p_age: 36,
+  p_active: true,
+}
+```
+
+The mapper validates input at runtime:
+
+- required fields must be present
+- field values must match their schema type
+- unknown fields throw by default
+- optional fields with `undefined` are skipped
+
+Unknown fields can be stripped instead:
+
+```ts
+const Car = defineNodeFromJson({
+  kind: "node",
+  label: "Car",
+  fields: {
+    id: { type: "string", required: true },
+    model: { type: "string", required: true },
+  },
+  options: {
+    unknownFields: "strip",
+  },
+});
+```
+
+You can load the same JSON shape from MongoDB:
+
+```ts
+const schemaDoc = await db.collection("graphSchemas").findOne({
+  label: "Person",
+});
+
+const Person = defineNodeFromJson(schemaDoc);
+const mapped = Person.from("p", formData);
+```
+
+Edge schemas work the same way:
+
+```ts
+import { defineEdgeFromJson, node, param } from "graph-dsl";
+
+const Wrote = defineEdgeFromJson({
+  kind: "edge",
+  label: "WROTE",
+  fields: {
+    role: { type: "string", required: true },
+    createdAt: { type: "string", required: true },
+    featured: { type: "boolean" },
+  },
+});
+
+const person = node("p", "Person").props({
+  id: param("personId"),
+});
+
+const post = node("post", "Post").props({
+  id: param("postId"),
+});
+
+const mappedEdge = Wrote.from(
+  person,
+  post,
+  {
+    role: "author",
+    createdAt: "2026-06-30",
+    featured: true,
+  },
+  { paramPrefix: "wrote" },
+);
+
+const ast = query()
+  .match(person, post)
+  .createEdge(mappedEdge.edge)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (p:Person { id: $personId }), (post:Post { id: $postId })
+CREATE (p)-[:WROTE { role: $wrote_role, createdAt: $wrote_createdAt, featured: $wrote_featured }]->(post)
+```
+
 ## Bulk Operations
 
 Use `unwind(...)` when you want to create or update many nodes/edges from a JavaScript array.
@@ -617,7 +755,8 @@ console.log(JSON.stringify(ast, null, 2));
 ## Current Limitations
 
 - Gremlin compiler is not implemented yet.
-- Typed schema API is not implemented yet.
+- Runtime schemas currently support `string`, `number`, and `boolean` fields.
+- Typed compile-time schema API is not implemented yet.
 - `set(...)` currently updates one property at a time.
 - The memory executor is intentionally small and not a full database.
 - Cypher support currently covers the portable MVP: `MATCH`, `CREATE`, `WHERE`, `SET`, `DELETE`, and `RETURN`.

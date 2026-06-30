@@ -10,6 +10,9 @@ export type Primitive = string | number | boolean | null;
 
 /**
  * Runtime parameter value accepted by compilers and executors.
+ *
+ * Primitive values are used by normal named parameters. Arrays of objects are
+ * used by `unwind(...)` for bulk operations.
  */
 export type ParameterValue =
   | Primitive
@@ -53,6 +56,8 @@ export type PropertyExpression = {
 
 /**
  * Property lookup expression on an unwound row, such as `row.email`.
+ *
+ * Row aliases are introduced by an `UnwindClause`.
  */
 export type RowPropertyExpression = {
   kind: "rowProperty";
@@ -151,6 +156,8 @@ export type CreateClause = {
 
 /**
  * Clause describing edges to create between already-bound node aliases.
+ *
+ * Unlike `CreateClause`, this clause does not create the endpoint nodes.
  */
 export type CreateEdgeClause = {
   kind: "createEdge";
@@ -159,6 +166,8 @@ export type CreateEdgeClause = {
 
 /**
  * Clause expanding a list expression into one binding per item.
+ *
+ * Cypher compilers emit this as `UNWIND`.
  */
 export type UnwindClause = {
   kind: "unwind";

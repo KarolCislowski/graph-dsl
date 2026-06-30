@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   compileCypher,
+  defineEdgeFromJson,
+  defineNodeFromJson,
   edge,
   eq,
   executeMemory,
@@ -391,5 +393,149 @@ describe("graph-dsl", () => {
         properties: { createdAt: "2026-06-30" },
       },
     ]);
+  });
+
+  it("maps a runtime JSON node schema and form object to a DSL node with params", () => {
+    const Person = defineNodeFromJson({
+      kind: "node",
+      label: "Person",
+      fields: {
+        id: { type: "string", required: true },
+        name: { type: "string", required: true },
+        age: { type: "number" },
+        active: { type: "boolean" },
+      },
+    });
+
+    const mapped = Person.from("p", {
+      id: "person-1",
+      name: "Ada",
+      age: 36,
+      active: true,
+    });
+
+    expect(
+      compileCypher(query().create(mapped.node).toAst(), {
+        params: mapped.params,
+      }),
+    ).toEqual({
+      query: "CREATE (p:Person { id: $p_id, name: $p_name, age: $p_age, active: $p_active })",
+      params: {
+        p_id: "person-1",
+        p_name: "Ada",
+        p_age: 36,
+        p_active: true,
+      },
+    });
+  });
+
+  it("supports stripping unknown fields when mapping runtime schema input", () => {
+    const Car = defineNodeFromJson({
+      kind: "node",
+      label: "Car",
+      fields: {
+        id: { type: "string", required: true },
+        model: { type: "string", required: true },
+      },
+      options: {
+        unknownFields: "strip",
+      },
+    });
+
+    const mapped = Car.from("c", {
+      id: "car-1",
+      model: "Roadster",
+      ignored: "field",
+    });
+
+    expect(mapped.params).toEqual({
+      c_id: "car-1",
+      c_model: "Roadster",
+    });
+  });
+
+  it("throws for unknown, missing, and invalid runtime schema fields", () => {
+    const Person = defineNodeFromJson({
+      kind: "node",
+      label: "Person",
+      fields: {
+        id: { type: "string", required: true },
+        age: { type: "number" },
+      },
+    });
+
+    expect(() => Person.from("p", { id: "person-1", role: "admin" })).toThrow(
+      'Unknown fields for "Person": role.',
+    );
+    expect(() => Person.from("p", { age: 36 })).toThrow(
+      'Missing required field "id" for "Person".',
+    );
+    expect(() => Person.from("p", { id: "person-1", age: "36" })).toThrow(
+      'Invalid field "age" for "Person": expected number.',
+    );
+  });
+
+  it("maps a runtime JSON edge schema and form object to a DSL edge with params", () => {
+    const Wrote = defineEdgeFromJson({
+      kind: "edge",
+      label: "WROTE",
+      fields: {
+        role: { type: "string", required: true },
+        createdAt: { type: "string", required: true },
+        featured: { type: "boolean" },
+      },
+    });
+
+    const person = node("p", "Person").props({ id: param("personId") });
+    const post = node("post", "Post").props({ id: param("postId") });
+    const mapped = Wrote.from(
+      person,
+      post,
+      {
+        role: "author",
+        createdAt: "2026-06-30",
+        featured: true,
+      },
+      { paramPrefix: "wrote" },
+    );
+
+    const ast = query()
+      .match(person, post)
+      .createEdge(mapped.edge)
+      .toAst();
+
+    expect(
+      compileCypher(ast, {
+        params: {
+          personId: "person-1",
+          postId: "post-1",
+          ...mapped.params,
+        },
+      }),
+    ).toEqual({
+      query:
+        "MATCH (p:Person { id: $personId }), (post:Post { id: $postId })\nCREATE (p)-[:WROTE { role: $wrote_role, createdAt: $wrote_createdAt, featured: $wrote_featured }]->(post)",
+      params: {
+        personId: "person-1",
+        postId: "post-1",
+        wrote_role: "author",
+        wrote_createdAt: "2026-06-30",
+        wrote_featured: true,
+      },
+    });
+  });
+
+  it("throws for invalid runtime edge schema fields", () => {
+    const Owns = defineEdgeFromJson({
+      kind: "edge",
+      label: "OWNS",
+      fields: {
+        since: { type: "number", required: true },
+      },
+    });
+
+    expect(() => Owns.from(node("p"), node("c"), { since: "2020" })).toThrow(
+      'Invalid field "since" for "OWNS": expected number.',
+    );
   });
 });

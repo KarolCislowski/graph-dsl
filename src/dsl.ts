@@ -165,6 +165,10 @@ export class QueryBuilder {
   /**
    * Applies properties to every node in later `match(...)` and `create(...)` clauses.
    *
+   * Scoped properties are not applied to edge patterns. If a node explicitly
+   * defines the same property as the scope, the builder throws to avoid
+   * accidental tenant/workspace override.
+   *
    * @param properties - Scope properties, typically tenant/workspace/org identifiers.
    * @returns A new query builder with the scope configured.
    */
@@ -174,6 +178,9 @@ export class QueryBuilder {
 
   /**
    * Expands a list expression into one query binding per item.
+   *
+   * This is the DSL representation of Cypher `UNWIND`. Use `row(as, key)` to
+   * read fields from the current item.
    *
    * @param source - List-producing expression, usually `param("items")`.
    * @param as - Alias used to reference each item with `row(as, key)`.
@@ -215,6 +222,9 @@ export class QueryBuilder {
 
   /**
    * Adds a create-edge clause for relationships between already-bound nodes.
+   *
+   * Use this after `match(...)` when the endpoint nodes already exist. Use
+   * `create(...)` when creating full node/edge patterns together.
    *
    * @param edges - Edge references or raw edge patterns to create.
    * @returns A new query builder with the create-edge clause appended.
@@ -301,6 +311,9 @@ export class QueryBuilder {
   /**
    * Materializes the builder state into a query AST.
    *
+   * The returned AST is detached from the builder so callers can inspect or
+   * pass it to compilers/executors without mutating builder state.
+   *
    * @returns A deep-cloned query AST.
    */
   toAst(): QueryAst {
@@ -373,6 +386,8 @@ export function value(value: Primitive): ValueExpression {
 
 /**
  * Creates a property lookup expression on an unwound row alias.
+ *
+ * For example, `row("item", "email")` compiles to `item.email`.
  *
  * @param alias - Row alias introduced by `unwind(...)`.
  * @param key - Property key to read from the current row.
