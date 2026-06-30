@@ -344,6 +344,94 @@ WHERE u.email = $email
 DELETE u
 ```
 
+## Bulk Operations
+
+Use `unwind(...)` when you want to create or update many nodes/edges from a JavaScript array.
+
+The DSL compiles this to Cypher `UNWIND`, so one parameterized query can process many rows:
+
+```ts
+import { compileCypher, node, param, query, row } from "graph-dsl";
+
+const ast = query()
+  .scope({ tenantId: param("tenantId") })
+  .unwind(param("users"), "item")
+  .create(
+    node("u", "User").props({
+      id: row("item", "id"),
+      email: row("item", "email"),
+      name: row("item", "name"),
+    }),
+  )
+  .toAst();
+
+const result = compileCypher(ast, {
+  params: {
+    tenantId: "tenant-1",
+    users: [
+      { id: "user-1", email: "ada@example.com", name: "Ada" },
+      { id: "user-2", email: "grace@example.com", name: "Grace" },
+    ],
+  },
+});
+```
+
+Cypher output:
+
+```cypher
+UNWIND $users AS item
+CREATE (u:User { id: item.id, email: item.email, name: item.name, tenantId: $tenantId })
+```
+
+`row(alias, key)` reads a field from the current unwound item:
+
+```ts
+row("item", "email");
+```
+
+which compiles to:
+
+```cypher
+item.email
+```
+
+### Bulk Edge Creation
+
+When creating edges between existing nodes, first match the nodes from row data, then use `createEdge(...)`.
+
+```ts
+import { edge, node, param, query, row } from "graph-dsl";
+
+const user = node("u", "User").props({
+  id: row("item", "userId"),
+});
+
+const post = node("p", "Post").props({
+  id: row("item", "postId"),
+});
+
+const ast = query()
+  .scope({ tenantId: param("tenantId") })
+  .unwind(param("writes"), "item")
+  .match(user, post)
+  .createEdge(
+    edge(user, "WROTE", post).props({
+      createdAt: row("item", "createdAt"),
+    }),
+  )
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+UNWIND $writes AS item
+MATCH (u:User { id: item.userId, tenantId: $tenantId }), (p:Post { id: item.postId, tenantId: $tenantId })
+CREATE (u)-[:WROTE { createdAt: item.createdAt }]->(p)
+```
+
+`create(...)` is for creating full node/edge patterns. `createEdge(...)` is for creating only relationships between aliases that are already bound by earlier clauses.
+
 ## Predicates
 
 Predicates describe boolean conditions, usually passed to `where(...)`.

@@ -8,6 +8,7 @@ import {
   param,
   prop,
   query,
+  row,
   select,
   type MemoryGraph,
 } from "../src/index.js";
@@ -261,5 +262,134 @@ describe("graph-dsl", () => {
         .match(node("u", "User").props({ tenantId: param("otherTenantId") }))
         .toAst(),
     ).toThrow('Node "u" already defines scoped properties: tenantId.');
+  });
+
+  it("compiles bulk node creation from an unwound parameter", () => {
+    const user = node("u", "User").props({
+      id: row("item", "id"),
+      email: row("item", "email"),
+      name: row("item", "name"),
+    });
+
+    const ast = query()
+      .scope({ tenantId: param("tenantId") })
+      .unwind(param("users"), "item")
+      .create(user)
+      .toAst();
+
+    expect(
+      compileCypher(ast, {
+        params: {
+          tenantId: "tenant-1",
+          users: [
+            { id: "user-1", email: "ada@example.com", name: "Ada" },
+            { id: "user-2", email: "grace@example.com", name: "Grace" },
+          ],
+        },
+      }),
+    ).toEqual({
+      query:
+        "UNWIND $users AS item\nCREATE (u:User { id: item.id, email: item.email, name: item.name, tenantId: $tenantId })",
+      params: {
+        tenantId: "tenant-1",
+        users: [
+          { id: "user-1", email: "ada@example.com", name: "Ada" },
+          { id: "user-2", email: "grace@example.com", name: "Grace" },
+        ],
+      },
+    });
+  });
+
+  it("executes bulk node creation from an unwound parameter against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [],
+      edges: [],
+    };
+
+    const ast = query()
+      .scope({ tenantId: param("tenantId") })
+      .unwind(param("users"), "item")
+      .create(
+        node("u", "User").props({
+          id: row("item", "id"),
+          email: row("item", "email"),
+        }),
+      )
+      .return(select("u", "email", "email"))
+      .toAst();
+
+    expect(
+      executeMemory(ast, graph, {
+        params: {
+          tenantId: "tenant-1",
+          users: [
+            { id: "user-1", email: "ada@example.com" },
+            { id: "user-2", email: "grace@example.com" },
+          ],
+        },
+      }),
+    ).toEqual([{ email: "ada@example.com" }, { email: "grace@example.com" }]);
+    expect(graph.nodes).toMatchObject([
+      { labels: ["User"], properties: { id: "user-1", email: "ada@example.com", tenantId: "tenant-1" } },
+      { labels: ["User"], properties: { id: "user-2", email: "grace@example.com", tenantId: "tenant-1" } },
+    ]);
+  });
+
+  it("compiles bulk edge creation from an unwound parameter", () => {
+    const user = node("u", "User").props({ id: row("item", "userId") });
+    const post = node("p", "Post").props({ id: row("item", "postId") });
+
+    const ast = query()
+      .scope({ tenantId: param("tenantId") })
+      .unwind(param("writes"), "item")
+      .match(user, post)
+      .createEdge(edge(user, "WROTE", post).props({ createdAt: row("item", "createdAt") }))
+      .toAst();
+
+    expect(compileCypher(ast)).toEqual({
+      query:
+        "UNWIND $writes AS item\nMATCH (u:User { id: item.userId, tenantId: $tenantId }), (p:Post { id: item.postId, tenantId: $tenantId })\nCREATE (u)-[:WROTE { createdAt: item.createdAt }]->(p)",
+      params: {},
+    });
+  });
+
+  it("executes bulk edge creation from an unwound parameter against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["User"], properties: { id: "user-1", tenantId: "tenant-1" } },
+        { id: "node-2", labels: ["Post"], properties: { id: "post-1", tenantId: "tenant-1" } },
+      ],
+      edges: [],
+    };
+
+    const user = node("u", "User").props({ id: row("item", "userId") });
+    const post = node("p", "Post").props({ id: row("item", "postId") });
+
+    expect(
+      executeMemory(
+        query()
+          .scope({ tenantId: param("tenantId") })
+          .unwind(param("writes"), "item")
+          .match(user, post)
+          .createEdge(edge(user, "WROTE", post).props({ createdAt: row("item", "createdAt") }))
+          .toAst(),
+        graph,
+        {
+          params: {
+            tenantId: "tenant-1",
+            writes: [{ userId: "user-1", postId: "post-1", createdAt: "2026-06-30" }],
+          },
+        },
+      ),
+    ).toHaveLength(1);
+    expect(graph.edges).toEqual([
+      {
+        id: "edge-1",
+        label: "WROTE",
+        from: "node-1",
+        to: "node-2",
+        properties: { createdAt: "2026-06-30" },
+      },
+    ]);
   });
 });

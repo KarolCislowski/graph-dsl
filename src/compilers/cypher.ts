@@ -3,18 +3,34 @@ import type {
   CompilerOutput,
   EdgePattern,
   NodePattern,
+  ParameterValue,
   Pattern,
   PredicateExpression,
-  Primitive,
   QueryAst,
   ReturnSelection,
   ValueExpression,
 } from "../ast.js";
 
+/**
+ * Options accepted by the Cypher compiler.
+ */
 export type CypherCompileOptions = {
-  params?: Record<string, Primitive>;
+  /**
+   * Runtime parameters to carry into the compiled result.
+   */
+  params?: Record<string, ParameterValue>;
 };
 
+/**
+ * Compiles a graph query AST to a Cypher query string and parameter bag.
+ *
+ * Named parameters created with `param("name")` are emitted as `$name`.
+ * Primitive literals are converted to generated parameters such as `$p0`.
+ *
+ * @param ast - Query AST produced by the DSL.
+ * @param options - Optional compiler settings and initial parameters.
+ * @returns A Cypher query string together with its parameters.
+ */
 export function compileCypher(ast: QueryAst, options: CypherCompileOptions = {}): CompilerOutput {
   const context: CypherContext = {
     params: { ...(options.params ?? {}) },
@@ -28,16 +44,20 @@ export function compileCypher(ast: QueryAst, options: CypherCompileOptions = {})
 }
 
 type CypherContext = {
-  params: Record<string, Primitive>;
+  params: Record<string, ParameterValue>;
   literalIndex: number;
 };
 
 function compileClause(clause: Clause, context: CypherContext): string {
   switch (clause.kind) {
+    case "unwind":
+      return `UNWIND ${compileValue(clause.source, context)} AS ${escapeIdentifier(clause.as)}`;
     case "match":
       return `MATCH ${compilePatterns(clause.patterns, context)}`;
     case "create":
       return `CREATE ${compilePatterns(clause.patterns, context)}`;
+    case "createEdge":
+      return `CREATE ${clause.edges.map((edge) => compileBoundEdgePath(edge, context)).join(", ")}`;
     case "where":
       return `WHERE ${compilePredicate(clause.predicate, context)}`;
     case "return":
@@ -49,6 +69,19 @@ function compileClause(clause: Clause, context: CypherContext): string {
       )}`;
     case "delete":
       return `DELETE ${clause.aliases.map(escapeIdentifier).join(", ")}`;
+  }
+}
+
+function compileBoundEdgePath(edge: EdgePattern, context: CypherContext): string {
+  const edgeText = compileEdge(edge, context);
+
+  switch (edge.direction) {
+    case "out":
+      return `(${escapeIdentifier(edge.from)})-${edgeText}->(${escapeIdentifier(edge.to)})`;
+    case "in":
+      return `(${escapeIdentifier(edge.from)})<-${edgeText}-(${escapeIdentifier(edge.to)})`;
+    case "both":
+      return `(${escapeIdentifier(edge.from)})-${edgeText}-(${escapeIdentifier(edge.to)})`;
   }
 }
 
@@ -184,6 +217,8 @@ function compileValue(expression: ValueExpression, context: CypherContext): stri
     case "parameter":
       return `$${expression.name}`;
     case "property":
+      return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
+    case "rowProperty":
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
   }
 }

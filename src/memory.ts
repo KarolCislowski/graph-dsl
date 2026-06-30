@@ -1,6 +1,7 @@
 import type {
   EdgePattern,
   NodePattern,
+  ParameterValue,
   Pattern,
   PredicateExpression,
   Primitive,
@@ -9,36 +10,100 @@ import type {
   ValueExpression,
 } from "./ast.js";
 
+/**
+ * Node stored by the in-memory graph executor.
+ */
 export type MemoryNode = {
+  /**
+   * Stable node identifier.
+   */
   id: string;
+  /**
+   * Node labels.
+   */
   labels: string[];
+  /**
+   * Primitive node properties.
+   */
   properties: Record<string, Primitive>;
 };
 
+/**
+ * Edge stored by the in-memory graph executor.
+ */
 export type MemoryEdge = {
+  /**
+   * Stable edge identifier.
+   */
   id: string;
+  /**
+   * Edge label.
+   */
   label: string;
+  /**
+   * Source node id.
+   */
   from: string;
+  /**
+   * Target node id.
+   */
   to: string;
+  /**
+   * Primitive edge properties.
+   */
   properties: Record<string, Primitive>;
 };
 
+/**
+ * Mutable graph consumed by `executeMemory(...)`.
+ */
 export type MemoryGraph = {
+  /**
+   * Nodes available in the graph.
+   */
   nodes: MemoryNode[];
+  /**
+   * Edges available in the graph.
+   */
   edges: MemoryEdge[];
 };
 
+/**
+ * Options accepted by the in-memory executor.
+ */
 export type MemoryExecuteOptions = {
-  params?: Record<string, Primitive>;
+  /**
+   * Runtime parameters available to `param(...)` expressions.
+   */
+  params?: Record<string, ParameterValue>;
 };
 
-export type MemoryRow = Record<string, MemoryNode | MemoryEdge | Primitive>;
+/**
+ * Row projected by the in-memory executor.
+ */
+export type MemoryRow = Record<string, MemoryNode | MemoryEdge | MemoryRowObject | Primitive>;
 
-type Binding = Record<string, MemoryNode | MemoryEdge>;
+/**
+ * Object produced by an `unwind(...)` row binding.
+ */
+export type MemoryRowObject = Record<string, Primitive>;
+type BindingValue = MemoryNode | MemoryEdge | MemoryRowObject;
+type Binding = Record<string, BindingValue>;
 type MemoryContext = {
-  params: Record<string, Primitive>;
+  params: Record<string, ParameterValue>;
 };
 
+/**
+ * Executes a query AST against a mutable in-memory graph.
+ *
+ * `match`, `where`, and `return` read from the graph. `create`, `set`, and
+ * `delete` mutate the provided graph object.
+ *
+ * @param ast - Query AST produced by the DSL.
+ * @param graph - Mutable in-memory graph to execute against.
+ * @param options - Optional runtime parameters.
+ * @returns Projected rows when the query has a return clause, otherwise the current bindings.
+ */
 export function executeMemory(
   ast: QueryAst,
   graph: MemoryGraph,
@@ -53,11 +118,17 @@ export function executeMemory(
 
   for (const clause of ast.clauses) {
     switch (clause.kind) {
+      case "unwind":
+        bindings = unwindBindings(bindings, clause.source, clause.as, context);
+        break;
       case "match":
         bindings = matchPatterns(bindings, clause.patterns, graph, context);
         break;
       case "create":
         bindings = createPatterns(bindings, clause.patterns, graph, context);
+        break;
+      case "createEdge":
+        bindings = createEdges(bindings, clause.edges, graph, context);
         break;
       case "where":
         bindings = bindings.filter((binding) => evaluatePredicate(clause.predicate, binding, context));
@@ -79,6 +150,20 @@ export function executeMemory(
   }
 
   return bindings.map((binding) => projectRow(binding, selections));
+}
+
+function unwindBindings(
+  bindings: Binding[],
+  source: ValueExpression,
+  alias: string,
+  context: MemoryContext,
+): Binding[] {
+  return bindings.flatMap((binding) =>
+    evaluateList(source, binding, context).map((item) => ({
+      ...binding,
+      [alias]: item,
+    })),
+  );
 }
 
 function matchPatterns(
@@ -174,6 +259,49 @@ function createPattern(
   return { ...binding, [pattern.alias]: edge };
 }
 
+function createEdges(
+  bindings: Binding[],
+  edges: EdgePattern[],
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding[] {
+  return edges.reduce(
+    (currentBindings, edge) =>
+      currentBindings.map((binding) => createEdge(binding, edge, graph, context)),
+    bindings,
+  );
+}
+
+function createEdge(
+  binding: Binding,
+  pattern: EdgePattern,
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding {
+  const from = binding[pattern.from];
+  const to = binding[pattern.to];
+
+  if (!from || !to || !isNode(from) || !isNode(to)) {
+    throw new Error(`Cannot create edge "${pattern.label}" without bound from/to nodes.`);
+  }
+
+  const edge: MemoryEdge = {
+    id: nextId("edge", graph.edges),
+    label: pattern.label,
+    from: pattern.direction === "in" ? to.id : from.id,
+    to: pattern.direction === "in" ? from.id : to.id,
+    properties: evaluateProperties(pattern.properties, binding, context),
+  };
+
+  graph.edges.push(edge);
+
+  if (!pattern.alias) {
+    return binding;
+  }
+
+  return { ...binding, [pattern.alias]: edge };
+}
+
 function matchesNode(
   pattern: NodePattern,
   node: MemoryNode,
@@ -229,7 +357,7 @@ function setProperty(
 ): Binding {
   const entity = binding[alias];
 
-  if (!entity) {
+  if (!entity || (!isNode(entity) && !isEdge(entity))) {
     return binding;
   }
 
@@ -242,7 +370,7 @@ function deleteAliases(bindings: Binding[], aliases: string[], graph: MemoryGrap
     bindings.flatMap((binding) =>
       aliases.flatMap((alias) => {
         const entity = binding[alias];
-        return entity ? [entity.id] : [];
+        return entity && (isNode(entity) || isEdge(entity)) ? [entity.id] : [];
       }),
     ),
   );
@@ -268,7 +396,7 @@ function bindEntity<T extends MemoryNode | MemoryEdge>(binding: Binding, alias: 
 function evaluatePredicate(
   predicate: PredicateExpression,
   binding: Binding,
-  context: { params: Record<string, Primitive> },
+  context: MemoryContext,
 ): boolean {
   switch (predicate.kind) {
     case "binary":
@@ -320,17 +448,40 @@ function evaluateValue(
     case "primitive":
       return expression.value;
     case "parameter":
-      return context.params[expression.name] ?? null;
+      return primitiveOrNull(context.params[expression.name]);
     case "property": {
       const entity = binding[expression.alias];
 
-      if (!entity) {
+      if (!entity || (!isNode(entity) && !isEdge(entity))) {
         return null;
       }
 
       return entity.properties[expression.key] ?? null;
     }
+    case "rowProperty": {
+      const row = binding[expression.alias];
+
+      if (!row || isNode(row) || isEdge(row)) {
+        return null;
+      }
+
+      return row[expression.key] ?? null;
+    }
   }
+}
+
+function evaluateList(
+  expression: ValueExpression,
+  binding: Binding,
+  context: MemoryContext,
+): MemoryRowObject[] {
+  if (expression.kind === "parameter") {
+    const value = context.params[expression.name];
+    return Array.isArray(value) && value.every(isRowObject) ? value : [];
+  }
+
+  const value = evaluateValue(expression, binding, context);
+  return Array.isArray(value) && value.every(isRowObject) ? value : [];
 }
 
 function evaluateProperties(
@@ -363,13 +514,34 @@ function projectRow(binding: Binding, selections: ReturnSelection[]): MemoryRow 
 
       const entity = binding[selection.alias];
       const key = selection.as ?? `${selection.alias}.${selection.key}`;
-      const value = entity ? entity.properties[selection.key] ?? null : null;
+      const value = entity && (isNode(entity) || isEdge(entity)) ? entity.properties[selection.key] ?? null : null;
 
       return [key, value];
     }),
   );
 }
 
-function isNode(entity: MemoryNode | MemoryEdge): entity is MemoryNode {
+function primitiveOrNull(value: ParameterValue | undefined): Primitive {
+  return isPrimitive(value) ? value : null;
+}
+
+function isPrimitive(value: unknown): value is Primitive {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
+function isRowObject(value: unknown): value is MemoryRowObject {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(isPrimitive)
+  );
+}
+
+function isNode(entity: BindingValue): entity is MemoryNode {
   return "labels" in entity;
+}
+
+function isEdge(entity: BindingValue): entity is MemoryEdge {
+  return "from" in entity && "to" in entity;
 }

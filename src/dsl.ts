@@ -13,27 +13,60 @@ import type {
 
 type ScopeProperties = Record<string, ValueExpression>;
 
+/**
+ * Immutable reference to a node pattern being built by the DSL.
+ */
 export class NodeRef {
   readonly kind = "nodeRef";
 
+  /**
+   * Creates a node reference.
+   *
+   * @param alias - Alias used to refer to this node in the query.
+   * @param labels - Labels attached to the node pattern.
+   * @param properties - Property constraints or values attached to the node pattern.
+   */
   constructor(
     readonly alias: string,
     readonly labels: string[] = [],
     readonly properties: Record<string, ValueExpression> = {},
   ) {}
 
+  /**
+   * Returns a new node reference with an additional label.
+   *
+   * @param label - Label to append to the node pattern.
+   * @returns A new node reference with the label added.
+   */
   label(label: string): NodeRef {
     return new NodeRef(this.alias, [...this.labels, label], this.properties);
   }
 
+  /**
+   * Returns a new node reference with the provided properties.
+   *
+   * @param properties - Property map using value expressions or primitive literals.
+   * @returns A new node reference with normalized property expressions.
+   */
   props(properties: Record<string, ValueExpression | Primitive>): NodeRef {
     return new NodeRef(this.alias, this.labels, normalizeProperties(properties));
   }
 
+  /**
+   * Creates a property expression for this node alias.
+   *
+   * @param key - Property key to reference.
+   * @returns A property expression such as `u.email`.
+   */
   prop(key: string): ValueExpression {
     return prop(this, key);
   }
 
+  /**
+   * Converts this reference to a backend-neutral node pattern.
+   *
+   * @returns The node pattern represented by this reference.
+   */
   toPattern(): NodePattern {
     return {
       kind: "node",
@@ -44,9 +77,22 @@ export class NodeRef {
   }
 }
 
+/**
+ * Immutable reference to an edge pattern being built by the DSL.
+ */
 export class EdgeRef {
   readonly kind = "edgeRef";
 
+  /**
+   * Creates an edge reference.
+   *
+   * @param from - Source-side node reference.
+   * @param label - Relationship/edge label.
+   * @param to - Target-side node reference.
+   * @param direction - Direction relative to `from` and `to`.
+   * @param alias - Optional edge alias.
+   * @param properties - Property constraints or values attached to the edge pattern.
+   */
   constructor(
     readonly from: NodeRef,
     readonly label: string,
@@ -56,10 +102,22 @@ export class EdgeRef {
     readonly properties: Record<string, ValueExpression> = {},
   ) {}
 
+  /**
+   * Returns a new edge reference with an alias.
+   *
+   * @param alias - Alias used to refer to the edge in later clauses.
+   * @returns A new edge reference with the alias set.
+   */
   as(alias: string): EdgeRef {
     return new EdgeRef(this.from, this.label, this.to, this.direction, alias, this.properties);
   }
 
+  /**
+   * Returns a new edge reference with the provided properties.
+   *
+   * @param properties - Property map using value expressions or primitive literals.
+   * @returns A new edge reference with normalized property expressions.
+   */
   props(properties: Record<string, ValueExpression | Primitive>): EdgeRef {
     return new EdgeRef(
       this.from,
@@ -71,6 +129,11 @@ export class EdgeRef {
     );
   }
 
+  /**
+   * Converts this reference to a backend-neutral edge pattern.
+   *
+   * @returns The edge pattern represented by this reference.
+   */
   toPattern(): EdgePattern {
     return {
       kind: "edge",
@@ -84,16 +147,52 @@ export class EdgeRef {
   }
 }
 
+/**
+ * Immutable fluent builder for constructing a graph query AST.
+ */
 export class QueryBuilder {
+  /**
+   * Creates a query builder.
+   *
+   * @param ast - Existing AST state. Used internally for immutable chaining.
+   * @param scopeProperties - Properties automatically applied to later node patterns.
+   */
   constructor(
     private readonly ast: QueryAst = { kind: "query", clauses: [] },
     private readonly scopeProperties: ScopeProperties = {},
   ) {}
 
+  /**
+   * Applies properties to every node in later `match(...)` and `create(...)` clauses.
+   *
+   * @param properties - Scope properties, typically tenant/workspace/org identifiers.
+   * @returns A new query builder with the scope configured.
+   */
   scope(properties: Record<string, ValueExpression | Primitive>): QueryBuilder {
     return new QueryBuilder(this.ast, normalizeProperties(properties));
   }
 
+  /**
+   * Expands a list expression into one query binding per item.
+   *
+   * @param source - List-producing expression, usually `param("items")`.
+   * @param as - Alias used to reference each item with `row(as, key)`.
+   * @returns A new query builder with the unwind clause appended.
+   */
+  unwind(source: ValueExpression, as: string): QueryBuilder {
+    return this.addClause({
+      kind: "unwind",
+      source,
+      as,
+    });
+  }
+
+  /**
+   * Adds a match clause.
+   *
+   * @param patterns - Node, edge, or raw AST patterns to match.
+   * @returns A new query builder with the match clause appended.
+   */
   match(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
     return this.addClause({
       kind: "match",
@@ -101,6 +200,12 @@ export class QueryBuilder {
     });
   }
 
+  /**
+   * Adds a create clause.
+   *
+   * @param patterns - Node, edge, or raw AST patterns to create.
+   * @returns A new query builder with the create clause appended.
+   */
   create(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
     return this.addClause({
       kind: "create",
@@ -108,10 +213,35 @@ export class QueryBuilder {
     });
   }
 
+  /**
+   * Adds a create-edge clause for relationships between already-bound nodes.
+   *
+   * @param edges - Edge references or raw edge patterns to create.
+   * @returns A new query builder with the create-edge clause appended.
+   */
+  createEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
+    return this.addClause({
+      kind: "createEdge",
+      edges: edges.map((edge) => (edge instanceof EdgeRef ? edge.toPattern() : edge)),
+    });
+  }
+
+  /**
+   * Adds a where clause.
+   *
+   * @param predicate - Boolean predicate used to filter the current bindings.
+   * @returns A new query builder with the where clause appended.
+   */
   where(predicate: PredicateExpression): QueryBuilder {
     return this.addClause({ kind: "where", predicate });
   }
 
+  /**
+   * Adds a return clause.
+   *
+   * @param selections - Aliases or properties to project.
+   * @returns A new query builder with the return clause appended.
+   */
   return(...selections: Array<NodeRef | ReturnSelection | ValueExpression>): QueryBuilder {
     return this.addClause({
       kind: "return",
@@ -119,6 +249,13 @@ export class QueryBuilder {
     });
   }
 
+  /**
+   * Adds a property update clause.
+   *
+   * @param property - Property expression to update, for example `prop("u", "name")`.
+   * @param nextValue - New value expression or primitive literal.
+   * @returns A new query builder with the set clause appended.
+   */
   set(property: ValueExpression, nextValue: ValueExpression | Primitive): QueryBuilder {
     if (property.kind !== "property") {
       throw new Error("set() expects a property expression, for example set(user.prop(\"name\"), \"Ada\").");
@@ -132,6 +269,12 @@ export class QueryBuilder {
     });
   }
 
+  /**
+   * Adds a delete clause for bound aliases.
+   *
+   * @param aliases - Node references, aliased edge references, or alias strings to delete.
+   * @returns A new query builder with the delete clause appended.
+   */
   delete(...aliases: Array<NodeRef | EdgeRef | string>): QueryBuilder {
     return this.addClause({
       kind: "delete",
@@ -155,6 +298,11 @@ export class QueryBuilder {
     });
   }
 
+  /**
+   * Materializes the builder state into a query AST.
+   *
+   * @returns A deep-cloned query AST.
+   */
   toAst(): QueryAst {
     return {
       kind: "query",
@@ -170,26 +318,77 @@ export class QueryBuilder {
   }
 }
 
+/**
+ * Creates an empty query builder.
+ *
+ * @returns A new query builder.
+ */
 export function query(): QueryBuilder {
   return new QueryBuilder();
 }
 
+/**
+ * Creates a node reference.
+ *
+ * @param alias - Alias used to refer to this node in the query.
+ * @param labels - Optional labels attached to the node pattern.
+ * @returns A node reference.
+ */
 export function node(alias: string, ...labels: string[]): NodeRef {
   return new NodeRef(alias, labels);
 }
 
+/**
+ * Creates an edge reference between two node references.
+ *
+ * @param from - Source-side node reference.
+ * @param label - Relationship/edge label.
+ * @param to - Target-side node reference.
+ * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
+ * @returns An edge reference.
+ */
 export function edge(from: NodeRef, label: string, to: NodeRef, direction: Direction = "out"): EdgeRef {
   return new EdgeRef(from, label, to, direction);
 }
 
+/**
+ * Creates a named runtime parameter expression.
+ *
+ * @param name - Parameter name without backend-specific prefixing.
+ * @returns A parameter value expression.
+ */
 export function param(name: string): ValueExpression {
   return { kind: "parameter", name };
 }
 
+/**
+ * Creates an explicit primitive literal expression.
+ *
+ * @param value - Primitive literal value.
+ * @returns A primitive value expression.
+ */
 export function value(value: Primitive): ValueExpression {
   return { kind: "primitive", value };
 }
 
+/**
+ * Creates a property lookup expression on an unwound row alias.
+ *
+ * @param alias - Row alias introduced by `unwind(...)`.
+ * @param key - Property key to read from the current row.
+ * @returns A row property value expression.
+ */
+export function row(alias: string, key: string): ValueExpression {
+  return { kind: "rowProperty", alias, key };
+}
+
+/**
+ * Creates a property lookup expression.
+ *
+ * @param ref - Node reference or alias string.
+ * @param key - Property key to reference.
+ * @returns A property value expression.
+ */
 export function prop(ref: NodeRef | string, key: string): ValueExpression {
   return {
     kind: "property",
@@ -198,6 +397,14 @@ export function prop(ref: NodeRef | string, key: string): ValueExpression {
   };
 }
 
+/**
+ * Creates a return selection for a property.
+ *
+ * @param ref - Node reference or alias string.
+ * @param key - Property key to return.
+ * @param as - Optional projected field alias.
+ * @returns A return selection.
+ */
 export function select(ref: NodeRef | string, key: string, as?: string): ReturnSelection {
   return {
     kind: "property",
@@ -207,42 +414,109 @@ export function select(ref: NodeRef | string, key: string, as?: string): ReturnS
   };
 }
 
+/**
+ * Creates an equality predicate.
+ *
+ * @param left - Left value expression.
+ * @param right - Right value expression or primitive literal.
+ * @returns A predicate expression.
+ */
 export function eq(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary("=", left, right);
 }
 
+/**
+ * Creates an inequality predicate.
+ *
+ * @param left - Left value expression.
+ * @param right - Right value expression or primitive literal.
+ * @returns A predicate expression.
+ */
 export function neq(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary("!=", left, right);
 }
 
+/**
+ * Creates a greater-than predicate.
+ *
+ * @param left - Left value expression.
+ * @param right - Right value expression or primitive literal.
+ * @returns A predicate expression.
+ */
 export function gt(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary(">", left, right);
 }
 
+/**
+ * Creates a greater-than-or-equal predicate.
+ *
+ * @param left - Left value expression.
+ * @param right - Right value expression or primitive literal.
+ * @returns A predicate expression.
+ */
 export function gte(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary(">=", left, right);
 }
 
+/**
+ * Creates a less-than predicate.
+ *
+ * @param left - Left value expression.
+ * @param right - Right value expression or primitive literal.
+ * @returns A predicate expression.
+ */
 export function lt(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary("<", left, right);
 }
 
+/**
+ * Creates a less-than-or-equal predicate.
+ *
+ * @param left - Left value expression.
+ * @param right - Right value expression or primitive literal.
+ * @returns A predicate expression.
+ */
 export function lte(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary("<=", left, right);
 }
 
+/**
+ * Creates a string containment predicate.
+ *
+ * @param left - Left value expression, usually a string property.
+ * @param right - Right value expression or primitive string literal.
+ * @returns A predicate expression.
+ */
 export function contains(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary("contains", left, right);
 }
 
+/**
+ * Combines predicates with logical AND.
+ *
+ * @param predicates - Child predicates. All must evaluate to true.
+ * @returns A logical predicate expression.
+ */
 export function and(...predicates: PredicateExpression[]): PredicateExpression {
   return { kind: "logical", operator: "and", predicates };
 }
 
+/**
+ * Combines predicates with logical OR.
+ *
+ * @param predicates - Child predicates. At least one must evaluate to true.
+ * @returns A logical predicate expression.
+ */
 export function or(...predicates: PredicateExpression[]): PredicateExpression {
   return { kind: "logical", operator: "or", predicates };
 }
 
+/**
+ * Negates a predicate.
+ *
+ * @param predicate - Predicate to negate.
+ * @returns A negated predicate expression.
+ */
 export function not(predicate: PredicateExpression): PredicateExpression {
   return { kind: "not", predicate };
 }
@@ -331,6 +605,9 @@ function isValueExpression(value: unknown): value is ValueExpression {
     typeof value === "object" &&
     value !== null &&
     "kind" in value &&
-    (value.kind === "primitive" || value.kind === "parameter" || value.kind === "property")
+    (value.kind === "primitive" ||
+      value.kind === "parameter" ||
+      value.kind === "property" ||
+      value.kind === "rowProperty")
   );
 }
