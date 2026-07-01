@@ -629,6 +629,63 @@ CREATE (u)-[:WROTE { createdAt: item.createdAt }]->(p)
 
 `create(...)` is for creating full node/edge patterns. `createEdge(...)` is for creating only relationships between aliases that are already bound by earlier clauses.
 
+### Batching Bulk Operations
+
+For large inputs, avoid passing the entire array as one parameter. Use `runParamBatches(...)` to execute the same `UNWIND` query in smaller chunks.
+
+The helper is driver-neutral: you decide what happens for each batch.
+
+```ts
+import { compileCypher, runParamBatches } from "graph-dsl";
+
+await runParamBatches({
+  items: hugeUsersArray,
+  batchParam: "users",
+  batchSize: 1000,
+  params: {
+    tenantId: "tenant-1",
+  },
+  onBatch: async (params, meta) => {
+    const compiled = compileCypher(ast, { params });
+
+    await session.run(compiled.query, compiled.params);
+
+    console.log(`Batch ${meta.index + 1}/${meta.totalBatches ?? "?"}`);
+  },
+});
+```
+
+The same helper can be used with the memory executor:
+
+```ts
+import { executeMemory, runParamBatches } from "graph-dsl";
+
+await runParamBatches({
+  items: hugeUsersArray,
+  batchParam: "users",
+  batchSize: 1000,
+  params: {
+    tenantId: "tenant-1",
+  },
+  onBatch: (params) => executeMemory(ast, graph, { params }),
+});
+```
+
+For lower-level control, use `chunk(...)` or `runBatches(...)`:
+
+```ts
+for (const usersBatch of chunk(hugeUsersArray, { batchSize: 1000 })) {
+  const compiled = compileCypher(ast, {
+    params: {
+      tenantId: "tenant-1",
+      users: usersBatch,
+    },
+  });
+
+  await session.run(compiled.query, compiled.params);
+}
+```
+
 ## Predicates
 
 Predicates describe boolean conditions, usually passed to `where(...)`.
@@ -732,7 +789,15 @@ Compiler result:
 ```ts
 type CompilerOutput = {
   query: string;
-  params: Record<string, string | number | boolean | null>;
+  params: Record<
+    string,
+    | string
+    | number
+    | boolean
+    | null
+    | Record<string, string | number | boolean | null>
+    | Array<string | number | boolean | null | Record<string, string | number | boolean | null>>
+  >;
 };
 ```
 
@@ -772,7 +837,7 @@ const rows = executeMemory(ast, graph, {
 });
 ```
 
-`executeMemory(...)` mutates the graph for `create`, `set`, and `delete` operations.
+`executeMemory(...)` mutates the graph for `create`, `createEdge`, `set`, `setProps`, and `delete` operations.
 
 ## AST Shape
 
@@ -789,8 +854,10 @@ Supported clause kinds:
 
 ```ts
 type Clause =
+  | UnwindClause
   | MatchClause
   | CreateClause
+  | CreateEdgeClause
   | WhereClause
   | ReturnClause
   | SetPropertyClause
@@ -808,9 +875,10 @@ console.log(JSON.stringify(ast, null, 2));
 - Gremlin compiler is not implemented yet.
 - Runtime schemas currently support `string`, `number`, and `boolean` fields.
 - Typed compile-time schema API is not implemented yet.
-- `set(...)` currently updates one property at a time.
-- The memory executor is intentionally small and not a full database.
-- Cypher support currently covers the portable MVP: `MATCH`, `CREATE`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
+- `set(...)` updates one property at a time; use `setProps(...)` for schema-generated multi-property patches.
+- The memory executor is intentionally small and not a full database; it is meant for tests, mocks, and semantic checks.
+- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, `CREATE`, relationship-only `CREATE` via `createEdge(...)`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
+- Batch helpers are driver-neutral and sequential by default; there is no built-in Neo4j session/transaction adapter yet.
 
 ## Roadmap
 

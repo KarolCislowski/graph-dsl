@@ -16,9 +16,8 @@ export type Primitive = string | number | boolean | null;
  */
 export type ParameterValue =
   | Primitive
-  | Primitive[]
   | Record<string, Primitive>
-  | Array<Record<string, Primitive>>;
+  | Array<Primitive | Record<string, Primitive>>;
 
 /**
  * A value-producing expression used in predicates, properties, and updates.

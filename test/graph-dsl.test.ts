@@ -11,7 +11,10 @@ import {
   prop,
   query,
   row,
+  runBatches,
+  runParamBatches,
   select,
+  chunk,
   type MemoryGraph,
 } from "../src/index.js";
 
@@ -665,5 +668,92 @@ describe("graph-dsl", () => {
     expect(() => Person.patch("p", { age: "37" })).toThrow(
       'Invalid field "age" for "Person": expected number.',
     );
+  });
+
+  it("chunks synchronous iterables without materializing more than a batch", () => {
+    expect([...chunk([1, 2, 3, 4, 5], { batchSize: 2 })]).toEqual([[1, 2], [3, 4], [5]]);
+    expect(() => [...chunk([1], { batchSize: 0 })]).toThrow("batchSize must be a positive integer.");
+  });
+
+  it("runs batches sequentially with metadata", async () => {
+    const seen: Array<{ batch: number[]; index: number; offset: number; totalItems?: number; totalBatches?: number }> = [];
+
+    const results = await runBatches([1, 2, 3, 4, 5], {
+      batchSize: 2,
+      onBatch: (batch, meta) => {
+        seen.push({
+          batch,
+          index: meta.index,
+          offset: meta.offset,
+          ...(meta.totalItems === undefined ? {} : { totalItems: meta.totalItems }),
+          ...(meta.totalBatches === undefined ? {} : { totalBatches: meta.totalBatches }),
+        });
+
+        return batch.reduce((sum, value) => sum + value, 0);
+      },
+    });
+
+    expect(results).toEqual([3, 7, 5]);
+    expect(seen).toEqual([
+      { batch: [1, 2], index: 0, offset: 0, totalItems: 5, totalBatches: 3 },
+      { batch: [3, 4], index: 1, offset: 2, totalItems: 5, totalBatches: 3 },
+      { batch: [5], index: 2, offset: 4, totalItems: 5, totalBatches: 3 },
+    ]);
+  });
+
+  it("runs batches from async iterables without known totals", async () => {
+    async function* source() {
+      yield 1;
+      yield 2;
+      yield 3;
+    }
+
+    const metadata = await runBatches(source(), {
+      batchSize: 2,
+      onBatch: (_batch, meta) => meta,
+    });
+
+    expect(metadata).toEqual([
+      { index: 0, offset: 0, size: 2 },
+      { index: 1, offset: 2, size: 1 },
+    ]);
+  });
+
+  it("runs parameter batches for unwind queries", async () => {
+    const graph: MemoryGraph = {
+      nodes: [],
+      edges: [],
+    };
+    const ast = query()
+      .scope({ tenantId: param("tenantId") })
+      .unwind(param("users"), "item")
+      .create(
+        node("u", "User").props({
+          id: row("item", "id"),
+          email: row("item", "email"),
+        }),
+      )
+      .toAst();
+
+    const results = await runParamBatches({
+      items: [
+        { id: "user-1", email: "ada@example.com" },
+        { id: "user-2", email: "grace@example.com" },
+        { id: "user-3", email: "katherine@example.com" },
+      ],
+      batchParam: "users",
+      batchSize: 2,
+      params: {
+        tenantId: "tenant-1",
+      },
+      onBatch: (params) => executeMemory(ast, graph, { params }).length,
+    });
+
+    expect(results).toEqual([2, 1]);
+    expect(graph.nodes).toMatchObject([
+      { properties: { id: "user-1", email: "ada@example.com", tenantId: "tenant-1" } },
+      { properties: { id: "user-2", email: "grace@example.com", tenantId: "tenant-1" } },
+      { properties: { id: "user-3", email: "katherine@example.com", tenantId: "tenant-1" } },
+    ]);
   });
 });
