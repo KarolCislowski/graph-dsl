@@ -335,7 +335,7 @@ export class QueryBuilder {
    * Creates a query builder.
    *
    * @param ast - Existing AST state. Used internally for immutable chaining.
-   * @param scopeProperties - Properties automatically applied to later node patterns.
+   * @param scopeProperties - Properties automatically applied to later node and edge patterns.
    */
   constructor(
     private readonly ast: QueryAst = { kind: "query", clauses: [] },
@@ -343,11 +343,10 @@ export class QueryBuilder {
   ) {}
 
   /**
-   * Applies properties to every node in later `match(...)` and `create(...)` clauses.
+   * Applies properties to every node and edge in later query clauses.
    *
-   * Scoped properties are not applied to edge patterns. If a node explicitly
-   * defines the same property as the scope, the builder throws to avoid
-   * accidental tenant/workspace override.
+   * If a pattern explicitly defines the same property as the scope, the builder
+   * throws to avoid accidental tenant/workspace override.
    *
    * @param properties - Scope properties, typically tenant/workspace/org identifiers.
    * @returns A new query builder with the scope configured.
@@ -434,7 +433,7 @@ export class QueryBuilder {
   createEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
     return this.addClause({
       kind: "createEdge",
-      edges: edges.map((edge) => (edge instanceof EdgeRef ? edge.toPattern() : edge)),
+      edges: edges.map((edge) => applyScopeToEdge(edge instanceof EdgeRef ? edge.toPattern() : edge, this.scopeProperties)),
     });
   }
 
@@ -450,7 +449,7 @@ export class QueryBuilder {
   mergeEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
     return this.addClause({
       kind: "mergeEdge",
-      edges: edges.map((edge) => (edge instanceof EdgeRef ? edge.toPattern() : edge)),
+      edges: edges.map((edge) => applyScopeToEdge(edge instanceof EdgeRef ? edge.toPattern() : edge, this.scopeProperties)),
     });
   }
 
@@ -1014,25 +1013,62 @@ function applyScope(pattern: Pattern, scopeProperties: ScopeProperties): Pattern
       ...pattern,
       from: applyScope(pattern.from, scopeProperties) as NodePattern,
       to: applyScope(pattern.to, scopeProperties) as NodePattern,
+      edge: {
+        ...pattern.edge,
+        properties: applyScopeToProperties(
+          "traversal edge",
+          pattern.edge.alias ?? pattern.edge.label,
+          pattern.edge.properties,
+          scopeProperties,
+        ),
+      },
     };
+  }
+
+  if (pattern.kind === "edge") {
+    return applyScopeToEdge(pattern, scopeProperties);
   }
 
   if (pattern.kind !== "node" || Object.keys(scopeProperties).length === 0) {
     return pattern;
   }
 
-  const duplicateKeys = Object.keys(scopeProperties).filter((key) => key in pattern.properties);
+  return {
+    ...pattern,
+    properties: applyScopeToProperties("Node", pattern.alias, pattern.properties, scopeProperties),
+  };
+}
 
-  if (duplicateKeys.length > 0) {
-    throw new Error(`Node "${pattern.alias}" already defines scoped properties: ${duplicateKeys.join(", ")}.`);
+function applyScopeToEdge(edge: EdgePattern, scopeProperties: ScopeProperties): EdgePattern {
+  if (Object.keys(scopeProperties).length === 0) {
+    return edge;
   }
 
   return {
-    ...pattern,
-    properties: {
-      ...pattern.properties,
-      ...scopeProperties,
-    },
+    ...edge,
+    properties: applyScopeToProperties("Edge", edge.alias ?? edge.label, edge.properties, scopeProperties),
+  };
+}
+
+function applyScopeToProperties(
+  kind: "Node" | "Edge" | "traversal edge",
+  name: string,
+  properties: Record<string, ValueExpression>,
+  scopeProperties: ScopeProperties,
+): Record<string, ValueExpression> {
+  if (Object.keys(scopeProperties).length === 0) {
+    return properties;
+  }
+
+  const duplicateKeys = Object.keys(scopeProperties).filter((key) => key in properties);
+
+  if (duplicateKeys.length > 0) {
+    throw new Error(`${kind} "${name}" already defines scoped properties: ${duplicateKeys.join(", ")}.`);
+  }
+
+  return {
+    ...properties,
+    ...scopeProperties,
   };
 }
 

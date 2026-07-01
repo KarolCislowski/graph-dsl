@@ -217,7 +217,7 @@ describe("graph-dsl", () => {
       ),
     ).toEqual({
       query:
-        "MERGE (u:User { id: $userId, tenantId: $tenantId })\nMERGE (p:Post { id: $postId, tenantId: $tenantId })\nMERGE (u)-[:WROTE { role: $p0 }]->(p)",
+        "MERGE (u:User { id: $userId, tenantId: $tenantId })\nMERGE (p:Post { id: $postId, tenantId: $tenantId })\nMERGE (u)-[:WROTE { role: $p0, tenantId: $tenantId }]->(p)",
       params: {
         p0: "author",
       },
@@ -264,7 +264,7 @@ describe("graph-dsl", () => {
     expect(graph.edges[0]).toMatchObject({
       label: "WROTE",
       from: "node-1",
-      properties: { role: "author" },
+      properties: { role: "author", tenantId: "tenant-1" },
     });
   });
 
@@ -433,6 +433,24 @@ describe("graph-dsl", () => {
     ).toThrow("executeMemory() requires maxHops for traversal patterns.");
   });
 
+  it("applies scoped properties to traversal edges", () => {
+    const source = node("source", "Person");
+    const target = node("target", "Person");
+
+    expect(
+      compileCypher(
+        query()
+          .scope({ tenantId: param("tenantId") })
+          .match(traverse(source, "KNOWS", target).hops(1, 2))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (source:Person { tenantId: $tenantId })-[:KNOWS*1..2 { tenantId: $tenantId }]->(target:Person { tenantId: $tenantId })",
+      params: {},
+    });
+  });
+
   it("compiles aggregate return selections to Cypher", () => {
     const user = node("u", "User");
     const post = node("p", "Post");
@@ -531,7 +549,7 @@ describe("graph-dsl", () => {
     ]);
   });
 
-  it("applies scoped properties to every matched and created node", () => {
+  it("applies scoped properties to every matched and created node and edge", () => {
     const user = node("u", "User");
     const post = node("p", "Post").props({
       title: param("title"),
@@ -549,7 +567,7 @@ describe("graph-dsl", () => {
 
     expect(compileCypher(ast)).toEqual({
       query:
-        "MATCH (u:User { tenantId: $tenantId, workspaceId: $workspaceId })-[:WROTE]->(p:Post { title: $title, tenantId: $tenantId, workspaceId: $workspaceId })\nCREATE (comment:Comment { body: $p0, tenantId: $tenantId, workspaceId: $workspaceId })\nRETURN p, comment.body AS commentBody",
+        "MATCH (u:User { tenantId: $tenantId, workspaceId: $workspaceId })-[:WROTE { tenantId: $tenantId, workspaceId: $workspaceId }]->(p:Post { title: $title, tenantId: $tenantId, workspaceId: $workspaceId })\nCREATE (comment:Comment { body: $p0, tenantId: $tenantId, workspaceId: $workspaceId })\nRETURN p, comment.body AS commentBody",
       params: {
         p0: "Nice",
       },
@@ -605,6 +623,15 @@ describe("graph-dsl", () => {
         .match(node("u", "User").props({ tenantId: param("otherTenantId") }))
         .toAst(),
     ).toThrow('Node "u" already defines scoped properties: tenantId.');
+  });
+
+  it("throws when an edge explicitly defines a scoped property", () => {
+    expect(() =>
+      query()
+        .scope({ tenantId: param("tenantId") })
+        .match(edge(node("u", "User"), "WROTE", node("p", "Post")).props({ tenantId: param("otherTenantId") }))
+        .toAst(),
+    ).toThrow('Edge "WROTE" already defines scoped properties: tenantId.');
   });
 
   it("compiles bulk node creation from an unwound parameter", () => {
@@ -691,7 +718,7 @@ describe("graph-dsl", () => {
 
     expect(compileCypher(ast)).toEqual({
       query:
-        "UNWIND $writes AS item\nMATCH (u:User { id: item.userId, tenantId: $tenantId }), (p:Post { id: item.postId, tenantId: $tenantId })\nCREATE (u)-[:WROTE { createdAt: item.createdAt }]->(p)",
+        "UNWIND $writes AS item\nMATCH (u:User { id: item.userId, tenantId: $tenantId }), (p:Post { id: item.postId, tenantId: $tenantId })\nCREATE (u)-[:WROTE { createdAt: item.createdAt, tenantId: $tenantId }]->(p)",
       params: {},
     });
   });
@@ -731,7 +758,7 @@ describe("graph-dsl", () => {
         label: "WROTE",
         from: "node-1",
         to: "node-2",
-        properties: { createdAt: "2026-06-30" },
+        properties: { createdAt: "2026-06-30", tenantId: "tenant-1" },
       },
     ]);
   });

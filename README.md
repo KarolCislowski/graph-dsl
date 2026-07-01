@@ -251,7 +251,7 @@ Most of the time, direct literals are easier to read.
 
 ### Scope
 
-`scope(props)` adds the same properties to every node used by later `match(...)` and `create(...)` clauses.
+`scope(props)` adds the same properties to every node and edge used by later query clauses.
 
 This is useful for multi-tenant data, workspace isolation, organization boundaries, or any other context that should be present on every node:
 
@@ -274,12 +274,12 @@ const ast = query()
 Cypher output:
 
 ```cypher
-MATCH (u:User { tenantId: $tenantId, workspaceId: $workspaceId, orgId: $orgId })-[:WROTE]->(p:Post { tenantId: $tenantId, workspaceId: $workspaceId, orgId: $orgId })
+MATCH (u:User { tenantId: $tenantId, workspaceId: $workspaceId, orgId: $orgId })-[:WROTE { tenantId: $tenantId, workspaceId: $workspaceId, orgId: $orgId }]->(p:Post { tenantId: $tenantId, workspaceId: $workspaceId, orgId: $orgId })
 WHERE u.email = $email
 RETURN p
 ```
 
-Scope is applied to nodes, not edges:
+Scope is applied to both nodes and edges:
 
 ```ts
 query()
@@ -287,7 +287,7 @@ query()
   .match(edge(node("u", "User"), "WROTE", node("p", "Post")));
 ```
 
-The generated node patterns get `tenantId`, while the `WROTE` relationship does not.
+The generated node patterns and the `WROTE` relationship all get `tenantId`. Traversal relationships created with `traverse(...)` get the same scoped properties too.
 
 Scope also applies to created nodes:
 
@@ -304,7 +304,7 @@ Cypher output:
 CREATE (u:User { email: $email, tenantId: $tenantId })
 ```
 
-If a node explicitly defines a property that also exists in the scope, the builder throws an error:
+If a node or edge explicitly defines a property that also exists in the scope, the builder throws an error:
 
 ```ts
 query()
@@ -452,7 +452,7 @@ Cypher output:
 ```cypher
 MERGE (u:User { id: $userId, tenantId: $tenantId })
 MERGE (p:Post { id: $postId, tenantId: $tenantId })
-MERGE (u)-[:WROTE { role: $p0 }]->(p)
+MERGE (u)-[:WROTE { role: $p0, tenantId: $tenantId }]->(p)
 ```
 
 Properties inside a `merge(...)` pattern are identity properties. If you want to merge by one field and update other fields, merge the identity pattern first and then use `set(...)`, `setProps(...)`, `onCreateSet(...)`, or `onMatchSet(...)`.
@@ -844,7 +844,7 @@ Cypher output:
 ```cypher
 UNWIND $writes AS item
 MATCH (u:User { id: item.userId, tenantId: $tenantId }), (p:Post { id: item.postId, tenantId: $tenantId })
-CREATE (u)-[:WROTE { createdAt: item.createdAt }]->(p)
+CREATE (u)-[:WROTE { createdAt: item.createdAt, tenantId: $tenantId }]->(p)
 ```
 
 `create(...)` is for creating full node/edge patterns. `createEdge(...)` is for creating only relationships between aliases that are already bound by earlier clauses.
