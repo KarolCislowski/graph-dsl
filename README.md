@@ -14,6 +14,23 @@ DSL -> AST -> Cypher Compiler -> Neo4j
 
 The current package is an MVP. It already supports a neutral AST, a fluent DSL, Cypher compilation, and an in-memory executor useful for tests.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Mental Model](#mental-model)
+- [Core Concepts](#core-concepts)
+- [Query Operations](#query-operations)
+- [Runtime Schemas](#runtime-schemas)
+- [Bulk Operations](#bulk-operations)
+- [Predicates](#predicates)
+- [Returning Data](#returning-data)
+- [Cypher Compiler](#cypher-compiler)
+- [Memory Executor](#memory-executor)
+- [AST Shape](#ast-shape)
+- [Current Limitations](#current-limitations)
+- [Roadmap](#roadmap)
+
 ## Installation
 
 This package is private and is currently intended to be installed directly from the private GitHub repository over SSH.
