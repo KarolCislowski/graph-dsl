@@ -443,6 +443,35 @@ const Person = defineNodeFromJson(schemaDoc);
 const mapped = Person.from("p", formData);
 ```
 
+For updates, use `patch(...)`. Patches validate only fields that are present, so `required` fields are not required for partial updates:
+
+```ts
+const patch = Person.patch("p", {
+  name: "Ada Lovelace",
+  age: 37,
+});
+
+const ast = query()
+  .match(node("p", "Person").props({ id: param("personId") }))
+  .setProps(patch)
+  .toAst();
+
+const result = compileCypher(ast, {
+  params: {
+    personId: "person-1",
+    ...patch.params,
+  },
+});
+```
+
+Cypher output:
+
+```cypher
+MATCH (p:Person { id: $personId })
+SET p.name = $p_name
+SET p.age = $p_age
+```
+
 Edge schemas work the same way:
 
 ```ts
@@ -488,6 +517,28 @@ Cypher output:
 ```cypher
 MATCH (p:Person { id: $personId }), (post:Post { id: $postId })
 CREATE (p)-[:WROTE { role: $wrote_role, createdAt: $wrote_createdAt, featured: $wrote_featured }]->(post)
+```
+
+Edge schemas also support patches for already-bound relationship aliases:
+
+```ts
+const relation = edge(person, "WROTE", post).as("r");
+
+const patch = Wrote.patch("r", {
+  featured: true,
+});
+
+const ast = query()
+  .match(relation)
+  .setProps(patch)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (p:Person)-[r:WROTE]->(post:Post)
+SET r.featured = $r_featured
 ```
 
 ## Bulk Operations

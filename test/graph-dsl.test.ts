@@ -538,4 +538,132 @@ describe("graph-dsl", () => {
       'Invalid field "since" for "OWNS": expected number.',
     );
   });
+
+  it("maps runtime node schema patches to set clauses", () => {
+    const Person = defineNodeFromJson({
+      kind: "node",
+      label: "Person",
+      fields: {
+        id: { type: "string", required: true },
+        name: { type: "string", required: true },
+        age: { type: "number" },
+      },
+    });
+
+    const patch = Person.patch("p", {
+      name: "Ada Lovelace",
+      age: 37,
+    });
+
+    expect(
+      compileCypher(
+        query()
+          .match(node("p", "Person").props({ id: param("personId") }))
+          .setProps(patch)
+          .toAst(),
+        {
+          params: {
+            personId: "person-1",
+            ...patch.params,
+          },
+        },
+      ),
+    ).toEqual({
+      query:
+        "MATCH (p:Person { id: $personId })\nSET p.name = $p_name\nSET p.age = $p_age",
+      params: {
+        personId: "person-1",
+        p_name: "Ada Lovelace",
+        p_age: 37,
+      },
+    });
+  });
+
+  it("executes runtime node schema patches against a memory graph", () => {
+    const Person = defineNodeFromJson({
+      kind: "node",
+      label: "Person",
+      fields: {
+        id: { type: "string", required: true },
+        name: { type: "string", required: true },
+      },
+    });
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["Person"], properties: { id: "person-1", name: "Ada" } },
+      ],
+      edges: [],
+    };
+    const patch = Person.patch("p", {
+      name: "Ada Lovelace",
+    });
+
+    expect(
+      executeMemory(
+        query()
+          .match(node("p", "Person").props({ id: param("personId") }))
+          .setProps(patch)
+          .return(select("p", "name", "name"))
+          .toAst(),
+        graph,
+        {
+          params: {
+            personId: "person-1",
+            ...patch.params,
+          },
+        },
+      ),
+    ).toEqual([{ name: "Ada Lovelace" }]);
+  });
+
+  it("maps runtime edge schema patches to set clauses", () => {
+    const Wrote = defineEdgeFromJson({
+      kind: "edge",
+      label: "WROTE",
+      fields: {
+        role: { type: "string", required: true },
+        featured: { type: "boolean" },
+      },
+    });
+
+    const patch = Wrote.patch("r", {
+      featured: true,
+    });
+
+    expect(
+      compileCypher(
+        query()
+          .match(edge(node("p", "Person"), "WROTE", node("post", "Post")).as("r"))
+          .setProps(patch)
+          .toAst(),
+        { params: patch.params },
+      ),
+    ).toEqual({
+      query: "MATCH (p:Person)-[r:WROTE]->(post:Post)\nSET r.featured = $r_featured",
+      params: {
+        r_featured: true,
+      },
+    });
+  });
+
+  it("validates runtime schema patch fields without requiring required fields", () => {
+    const Person = defineNodeFromJson({
+      kind: "node",
+      label: "Person",
+      fields: {
+        id: { type: "string", required: true },
+        age: { type: "number" },
+      },
+    });
+
+    expect(Person.patch("p", { age: 37 }).params).toEqual({
+      p_age: 37,
+    });
+    expect(() => Person.patch("p", { id: "person-1", unknown: true })).toThrow(
+      'Unknown fields for "Person": unknown.',
+    );
+    expect(() => Person.patch("p", { age: "37" })).toThrow(
+      'Invalid field "age" for "Person": expected number.',
+    );
+  });
 });

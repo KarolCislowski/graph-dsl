@@ -1,5 +1,13 @@
 import type { Primitive } from "./ast.js";
-import { edge, node, param, type EdgeRef, type NodeRef } from "./dsl.js";
+import {
+  edge,
+  node,
+  param,
+  prop,
+  type EdgeRef,
+  type NodeRef,
+  type PropertySet,
+} from "./dsl.js";
 
 /**
  * Primitive field types supported by runtime node schemas.
@@ -158,6 +166,23 @@ export type MappedEdge = {
 };
 
 /**
+ * Result of mapping an input object to property updates and a parameter bag.
+ *
+ * Pass this object to `query().setProps(...)` and merge `params` into
+ * compiler/executor params.
+ */
+export type MappedPatch = {
+  /**
+   * Property assignments mapped from input fields.
+   */
+  sets: PropertySet[];
+  /**
+   * Generated parameter values.
+   */
+  params: Record<string, Primitive>;
+};
+
+/**
  * Runtime node schema produced from a serializable JSON definition.
  *
  * Use `from(...)` to turn runtime input into a `NodeRef` with parameterized
@@ -177,6 +202,18 @@ export type RuntimeNodeSchema = {
    * @returns A mapped node and parameter bag.
    */
   from(alias: string, input: SchemaInput, options?: SchemaMapOptions): MappedNode;
+  /**
+   * Maps an input object to property updates for an already-bound node alias.
+   *
+   * Required fields are not required for patches. Present fields are still
+   * validated and unknown fields follow normal `unknownFields` behavior.
+   *
+   * @param alias - Already-bound node alias to update.
+   * @param input - Partial runtime object, such as form data.
+   * @param options - Optional mapping behavior.
+   * @returns A mapped patch and parameter bag.
+   */
+  patch(alias: string, input: SchemaInput, options?: SchemaMapOptions): MappedPatch;
 };
 
 /**
@@ -200,6 +237,18 @@ export type RuntimeEdgeSchema = {
    * @returns A mapped edge and parameter bag.
    */
   from(from: NodeRef, to: NodeRef, input: SchemaInput, options?: SchemaMapOptions): MappedEdge;
+  /**
+   * Maps an input object to property updates for an already-bound edge alias.
+   *
+   * Required fields are not required for patches. Present fields are still
+   * validated and unknown fields follow normal `unknownFields` behavior.
+   *
+   * @param alias - Already-bound edge alias to update.
+   * @param input - Partial runtime object, such as form data.
+   * @param options - Optional mapping behavior.
+   * @returns A mapped patch and parameter bag.
+   */
+  patch(alias: string, input: SchemaInput, options?: SchemaMapOptions): MappedPatch;
 };
 
 /**
@@ -218,6 +267,9 @@ export function defineNodeFromJson(schema: JsonNodeSchema): RuntimeNodeSchema {
     schema,
     from(alias, input, options = {}) {
       return mapNodeInput(schema, alias, input, options);
+    },
+    patch(alias, input, options = {}) {
+      return mapPatchInput(schema, alias, input, options);
     },
   };
 }
@@ -239,6 +291,9 @@ export function defineEdgeFromJson(schema: JsonEdgeSchema): RuntimeEdgeSchema {
     from(from, to, input, options = {}) {
       return mapEdgeInput(schema, from, to, input, options);
     },
+    patch(alias, input, options = {}) {
+      return mapPatchInput(schema, alias, input, options);
+    },
   };
 }
 
@@ -248,7 +303,9 @@ function mapNodeInput(
   input: SchemaInput,
   options: SchemaMapOptions,
 ): MappedNode {
-  const { params, props } = mapInputToProps(schema, alias, input, options);
+  const { params, props } = mapInputToProps(schema, alias, input, options, {
+    requireRequiredFields: true,
+  });
 
   return {
     node: node(alias, schema.label).props(props),
@@ -264,10 +321,31 @@ function mapEdgeInput(
   options: SchemaMapOptions,
 ): MappedEdge {
   const edgeAlias = `${from.alias}_${schema.label}_${to.alias}`;
-  const { params, props } = mapInputToProps(schema, edgeAlias, input, options);
+  const { params, props } = mapInputToProps(schema, edgeAlias, input, options, {
+    requireRequiredFields: true,
+  });
 
   return {
     edge: edge(from, schema.label, to).props(props),
+    params,
+  };
+}
+
+function mapPatchInput(
+  schema: JsonNodeSchema | JsonEdgeSchema,
+  alias: string,
+  input: SchemaInput,
+  options: SchemaMapOptions,
+): MappedPatch {
+  const { params, props } = mapInputToProps(schema, alias, input, options, {
+    requireRequiredFields: false,
+  });
+
+  return {
+    sets: Object.entries(props).map(([key, value]) => ({
+      property: prop(alias, key),
+      value,
+    })),
     params,
   };
 }
@@ -277,6 +355,7 @@ function mapInputToProps(
   defaultParamPrefix: string,
   input: SchemaInput,
   options: SchemaMapOptions,
+  mapOptions: { requireRequiredFields: boolean },
 ): { params: Record<string, Primitive>; props: Record<string, ReturnType<typeof param>> } {
   const unknownFields = options.unknownFields ?? schema.options?.unknownFields ?? "error";
   const paramPrefix = options.paramPrefix ?? defaultParamPrefix;
@@ -294,7 +373,7 @@ function mapInputToProps(
     const rawValue = input[key];
 
     if (rawValue === undefined) {
-      if (field.required) {
+      if (field.required && mapOptions.requireRequiredFields) {
         throw new Error(`Missing required field "${key}" for "${schema.label}".`);
       }
 

@@ -14,6 +14,30 @@ import type {
 type ScopeProperties = Record<string, ValueExpression>;
 
 /**
+ * One property assignment accepted by `setProps(...)`.
+ */
+export type PropertySet = {
+  /**
+   * Property expression to update.
+   */
+  property: ValueExpression;
+  /**
+   * New value expression or primitive literal.
+   */
+  value: ValueExpression | Primitive;
+};
+
+/**
+ * Collection of property assignments, usually produced by runtime schema mappers.
+ */
+export type PropertySetCollection = {
+  /**
+   * Property assignments to append as `set(...)` clauses.
+   */
+  sets: PropertySet[];
+};
+
+/**
  * Immutable reference to a node pattern being built by the DSL.
  */
 export class NodeRef {
@@ -277,6 +301,22 @@ export class QueryBuilder {
       key: property.key,
       value: isValueExpression(nextValue) ? nextValue : value(nextValue),
     });
+  }
+
+  /**
+   * Adds multiple property update clauses.
+   *
+   * This is useful with runtime schema patches, where a form object is mapped
+   * to a list of property assignments and generated parameters.
+   *
+   * @param patch - Collection of property assignments to apply.
+   * @returns A new query builder with all set clauses appended.
+   */
+  setProps(patch: PropertySetCollection): QueryBuilder {
+    return patch.sets.reduce(
+      (builder, assignment) => builder.set(assignment.property, assignment.value),
+      this as QueryBuilder,
+    );
   }
 
   /**
