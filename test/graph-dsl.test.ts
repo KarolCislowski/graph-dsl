@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  avg,
+  collect,
   compileCypher,
+  count,
+  countAll,
   defineEdgeFromJson,
   defineNodeFromJson,
   edge,
   eq,
   executeMemory,
+  max,
+  min,
   node,
   param,
+  path,
   prop,
   query,
   row,
@@ -15,6 +22,8 @@ import {
   runParamBatches,
   select,
   chunk,
+  sum,
+  traverse,
   type MemoryGraph,
 } from "../src/index.js";
 
@@ -345,6 +354,181 @@ describe("graph-dsl", () => {
     expect(() => query().match(node("p", "Person")).onMatchSet(prop("p", "updatedAt"), param("now"))).toThrow(
       "onMatchSet() must be called immediately after merge(), mergeEdge(), or another merge set clause.",
     );
+  });
+
+  it("compiles path and traversal patterns to Cypher", () => {
+    const source = node("source", "Person").props({ id: param("sourceId") });
+    const target = node("target", "Person").props({ id: param("targetId") });
+
+    expect(
+      compileCypher(
+        query()
+          .match(path("p", source, "KNOWS", target).hops(1, 3))
+          .return("p")
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH p = (source:Person { id: $sourceId })-[:KNOWS*1..3]->(target:Person { id: $targetId })\nRETURN p",
+      params: {},
+    });
+
+    expect(
+      compileCypher(
+        query()
+          .match(traverse(source, "KNOWS", target, "both").hops(2, 2).via("rels").props({ active: true }))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (source:Person { id: $sourceId })-[rels:KNOWS*2 { active: $p0 }]-(target:Person { id: $targetId })",
+      params: {
+        p0: true,
+      },
+    });
+  });
+
+  it("executes bounded traversal patterns against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["Person"], properties: { id: "ada", name: "Ada" } },
+        { id: "node-2", labels: ["Person"], properties: { id: "grace", name: "Grace" } },
+        { id: "node-3", labels: ["Person"], properties: { id: "katherine", name: "Katherine" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "KNOWS", from: "node-1", to: "node-2", properties: { active: true } },
+        { id: "edge-2", label: "KNOWS", from: "node-2", to: "node-3", properties: { active: true } },
+      ],
+    };
+    const source = node("source", "Person").props({ id: param("sourceId") });
+    const target = node("target", "Person").props({ id: param("targetId") });
+    const ast = query()
+      .match(path("p", source, "KNOWS", target).hops(1, 2).props({ active: true }))
+      .return("p", select(target, "name", "targetName"))
+      .toAst();
+
+    const result = executeMemory(ast, graph, {
+      params: {
+        sourceId: "ada",
+        targetId: "katherine",
+      },
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.targetName).toBe("Katherine");
+    expect(result[0]?.p).toMatchObject({
+      nodes: [{ id: "node-1" }, { id: "node-2" }, { id: "node-3" }],
+      edges: [{ id: "edge-1" }, { id: "edge-2" }],
+    });
+  });
+
+  it("requires bounded traversal patterns in the memory executor", () => {
+    expect(() =>
+      executeMemory(
+        query()
+          .match(traverse(node("a"), "KNOWS", node("b")))
+          .toAst(),
+        { nodes: [], edges: [] },
+      ),
+    ).toThrow("executeMemory() requires maxHops for traversal patterns.");
+  });
+
+  it("compiles aggregate return selections to Cypher", () => {
+    const user = node("u", "User");
+    const post = node("p", "Post");
+
+    expect(
+      compileCypher(
+        query()
+          .match(edge(user, "WROTE", post))
+          .return(
+            select(user, "role", "role"),
+            countAll("rows"),
+            count(post, "postCount"),
+            collect(prop(post, "title"), "titles", { distinct: true }),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)-[:WROTE]->(p:Post)\nRETURN u.role AS role, count(*) AS rows, count(p) AS postCount, collect(DISTINCT p.title) AS titles",
+      params: {},
+    });
+  });
+
+  it("executes aggregate return selections against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { role: "admin", score: 10 } },
+        { id: "user-2", labels: ["User"], properties: { role: "admin", score: 20 } },
+        { id: "user-3", labels: ["User"], properties: { role: "reader", score: 5 } },
+      ],
+      edges: [],
+    };
+    const user = node("u", "User");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .return(
+            select(user, "role", "role"),
+            count(user, "users"),
+            sum(prop(user, "score"), "totalScore"),
+            avg(prop(user, "score"), "avgScore"),
+            min(prop(user, "score"), "minScore"),
+            max(prop(user, "score"), "maxScore"),
+            collect(prop(user, "score"), "scores"),
+          )
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        role: "admin",
+        users: 2,
+        totalScore: 30,
+        avgScore: 15,
+        minScore: 10,
+        maxScore: 20,
+        scores: [10, 20],
+      },
+      {
+        role: "reader",
+        users: 1,
+        totalScore: 5,
+        avgScore: 5,
+        minScore: 5,
+        maxScore: 5,
+        scores: [5],
+      },
+    ]);
+  });
+
+  it("executes distinct aggregates against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["User"], properties: { role: "admin" } },
+        { id: "node-2", labels: ["User"], properties: { role: "admin" } },
+        { id: "node-3", labels: ["User"], properties: { role: "reader" } },
+      ],
+      edges: [],
+    };
+
+    expect(
+      executeMemory(
+        query()
+          .match(node("u", "User"))
+          .return(count(prop("u", "role"), "roles", { distinct: true }), collect(prop("u", "role"), "roleList", { distinct: true }))
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        roles: 2,
+        roleList: ["admin", "reader"],
+      },
+    ]);
   });
 
   it("applies scoped properties to every matched and created node", () => {

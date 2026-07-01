@@ -133,9 +133,36 @@ export type EdgePattern = {
 };
 
 /**
+ * Variable-length edge pattern used inside path/traversal matches.
+ */
+export type TraversalEdgePattern = {
+  kind: "traversalEdge";
+  alias?: string;
+  label: string;
+  direction: Direction;
+  properties: Record<string, ValueExpression>;
+  minHops: number;
+  maxHops?: number;
+};
+
+/**
+ * Aliasable path pattern for traversal queries.
+ *
+ * Path patterns are intended for `match(...)`; write clauses cannot create or
+ * merge variable-length paths.
+ */
+export type PathPattern = {
+  kind: "path";
+  alias?: string;
+  from: NodePattern;
+  edge: TraversalEdgePattern;
+  to: NodePattern;
+};
+
+/**
  * A graph pattern element.
  */
-export type Pattern = NodePattern | EdgePattern;
+export type Pattern = NodePattern | EdgePattern | PathPattern;
 
 /**
  * Clause describing graph patterns to match.
@@ -215,7 +242,32 @@ export type ReturnSelection =
       alias: string;
       key: string;
       as?: string;
+    }
+  | {
+      kind: "aggregate";
+      fn: AggregateFunction;
+      target: AggregateTargetExpression;
+      distinct: boolean;
+      as?: string;
     };
+
+/**
+ * Supported aggregate functions.
+ */
+export type AggregateFunction = "count" | "sum" | "avg" | "min" | "max" | "collect";
+
+/**
+ * Value accepted as an aggregate input.
+ */
+export type AggregateTargetExpression =
+  | {
+      kind: "all";
+    }
+  | {
+      kind: "aliasRef";
+      alias: string;
+    }
+  | ValueExpression;
 
 /**
  * Clause projecting values from the current binding set.

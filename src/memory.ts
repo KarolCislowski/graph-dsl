@@ -1,7 +1,10 @@
 import type {
+  AggregateFunction,
+  AggregateTargetExpression,
   EdgePattern,
   NodePattern,
   ParameterValue,
+  PathPattern,
   Pattern,
   PredicateExpression,
   Primitive,
@@ -55,6 +58,20 @@ export type MemoryEdge = {
 };
 
 /**
+ * Path produced by the in-memory graph executor.
+ */
+export type MemoryPath = {
+  /**
+   * Nodes in path order.
+   */
+  nodes: MemoryNode[];
+  /**
+   * Edges in traversal order.
+   */
+  edges: MemoryEdge[];
+};
+
+/**
  * Mutable graph consumed by `executeMemory(...)`.
  */
 export type MemoryGraph = {
@@ -81,15 +98,25 @@ export type MemoryExecuteOptions = {
 /**
  * Row projected by the in-memory executor.
  */
-export type MemoryRow = Record<string, MemoryNode | MemoryEdge | MemoryRowObject | Primitive>;
+export type MemoryValue =
+  | MemoryNode
+  | MemoryEdge
+  | MemoryEdge[]
+  | MemoryPath
+  | MemoryRowObject
+  | Primitive
+  | MemoryValue[];
+
+export type MemoryRow = Record<string, MemoryValue>;
 
 /**
  * Object produced by an `unwind(...)` row binding.
  */
 export type MemoryRowObject = Record<string, Primitive>;
 type BindingValue = MemoryNode | MemoryEdge | MemoryRowObject;
+type PathBindingValue = BindingValue | MemoryPath | MemoryEdge[];
 const mergeCreatedState = Symbol("mergeCreatedState");
-type Binding = Record<string, BindingValue> & {
+type Binding = Record<string, PathBindingValue> & {
   [mergeCreatedState]?: boolean;
 };
 type MemoryContext = {
@@ -172,6 +199,10 @@ export function executeMemory(
     return bindings;
   }
 
+  if (selections.some((selection) => selection.kind === "aggregate")) {
+    return projectAggregatedRows(bindings, selections);
+  }
+
   return bindings.map((binding) => projectRow(binding, selections));
 }
 
@@ -212,6 +243,10 @@ function matchPattern(
     return graph.nodes
       .filter((node) => matchesNode(pattern, node, binding, context))
       .flatMap((node) => bindEntity(binding, pattern.alias, node));
+  }
+
+  if (pattern.kind === "path") {
+    return matchPath(pattern, binding, graph, context);
   }
 
   return graph.edges
@@ -284,6 +319,10 @@ function createPattern(
 
     graph.nodes.push(node);
     return { ...binding, [pattern.alias]: node };
+  }
+
+  if (pattern.kind === "path") {
+    throw new Error("Cannot create a path/traversal pattern. Use match(...) for traversals.");
   }
 
   const from = binding[pattern.from];
@@ -427,6 +466,141 @@ function matchesEdge(
   );
 }
 
+function matchPath(
+  pattern: PathPattern,
+  binding: Binding,
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding[] {
+  if (pattern.edge.maxHops === undefined) {
+    throw new Error("executeMemory() requires maxHops for traversal patterns.");
+  }
+
+  return matchPattern(binding, pattern.from, graph, context).flatMap((startBinding) => {
+    const start = startBinding[pattern.from.alias];
+
+    if (!start || !isNode(start)) {
+      return [];
+    }
+
+    return searchPath({
+      pattern,
+      binding: startBinding,
+      graph,
+      context,
+      currentNode: start,
+      nodes: [start],
+      edges: [],
+      usedEdgeIds: new Set<string>(),
+    });
+  });
+}
+
+type PathSearchState = {
+  pattern: PathPattern;
+  binding: Binding;
+  graph: MemoryGraph;
+  context: MemoryContext;
+  currentNode: MemoryNode;
+  nodes: MemoryNode[];
+  edges: MemoryEdge[];
+  usedEdgeIds: Set<string>;
+};
+
+function searchPath(state: PathSearchState): Binding[] {
+  const results: Binding[] = [];
+  const depth = state.edges.length;
+
+  if (depth >= state.pattern.edge.minHops) {
+    results.push(...bindPathEnd(state));
+  }
+
+  if (depth >= state.pattern.edge.maxHops!) {
+    return results;
+  }
+
+  for (const next of nextTraversalSteps(state)) {
+    results.push(
+      ...searchPath({
+        ...state,
+        currentNode: next.node,
+        nodes: [...state.nodes, next.node],
+        edges: [...state.edges, next.edge],
+        usedEdgeIds: new Set([...state.usedEdgeIds, next.edge.id]),
+      }),
+    );
+  }
+
+  return results;
+}
+
+function bindPathEnd(state: PathSearchState): Binding[] {
+  if (!matchesNode(state.pattern.to, state.currentNode, state.binding, state.context)) {
+    return [];
+  }
+
+  return bindEntity(state.binding, state.pattern.to.alias, state.currentNode).flatMap((binding) => {
+    const pathBinding = bindPathAlias(binding, state.pattern.alias, {
+      nodes: state.nodes,
+      edges: state.edges,
+    });
+
+    if (!pathBinding) {
+      return [];
+    }
+
+    const edgeAliasBinding = bindTraversalEdgeAlias(pathBinding, state.pattern.edge.alias, state.edges);
+    return edgeAliasBinding ? [edgeAliasBinding] : [];
+  });
+}
+
+function nextTraversalSteps(state: PathSearchState): Array<{ edge: MemoryEdge; node: MemoryNode }> {
+  return state.graph.edges.flatMap((edge) => {
+    if (state.usedEdgeIds.has(edge.id) || edge.label !== state.pattern.edge.label) {
+      return [];
+    }
+
+    if (!matchesTraversalEdgeProperties(state.pattern, edge, state.binding, state.context)) {
+      return [];
+    }
+
+    const nextNodeId = nextNodeIdForTraversal(state.pattern, edge, state.currentNode.id);
+
+    if (!nextNodeId) {
+      return [];
+    }
+
+    const node = state.graph.nodes.find((candidate) => candidate.id === nextNodeId);
+    return node ? [{ edge, node }] : [];
+  });
+}
+
+function matchesTraversalEdgeProperties(
+  pattern: PathPattern,
+  edge: MemoryEdge,
+  binding: Binding,
+  context: MemoryContext,
+): boolean {
+  return Object.entries(pattern.edge.properties).every(([key, expression]) =>
+    edge.properties[key] === evaluateValue(expression, binding, context),
+  );
+}
+
+function nextNodeIdForTraversal(pattern: PathPattern, edge: MemoryEdge, currentNodeId: string): string | undefined {
+  switch (pattern.edge.direction) {
+    case "out":
+      return edge.from === currentNodeId ? edge.to : undefined;
+    case "in":
+      return edge.to === currentNodeId ? edge.from : undefined;
+    case "both":
+      if (edge.from === currentNodeId) {
+        return edge.to;
+      }
+
+      return edge.to === currentNodeId ? edge.from : undefined;
+  }
+}
+
 function setProperty(
   binding: Binding,
   alias: string,
@@ -465,11 +639,43 @@ function deleteAliases(bindings: Binding[], aliases: string[], graph: MemoryGrap
 function bindEntity<T extends MemoryNode | MemoryEdge>(binding: Binding, alias: string, entity: T): Binding[] {
   const existing = binding[alias];
 
-  if (existing && existing.id !== entity.id) {
+  if (existing && (!isEntity(existing) || existing.id !== entity.id)) {
     return [];
   }
 
   return [{ ...binding, [alias]: entity }];
+}
+
+function bindPathAlias(binding: Binding, alias: string | undefined, path: MemoryPath): Binding | undefined {
+  if (!alias) {
+    return binding;
+  }
+
+  const existing = binding[alias];
+
+  if (existing && !isSamePath(existing, path)) {
+    return undefined;
+  }
+
+  return { ...binding, [alias]: path };
+}
+
+function bindTraversalEdgeAlias(
+  binding: Binding,
+  alias: string | undefined,
+  edges: MemoryEdge[],
+): Binding | undefined {
+  if (!alias) {
+    return binding;
+  }
+
+  const existing = binding[alias];
+
+  if (existing && !isSameEdgeList(existing, edges)) {
+    return undefined;
+  }
+
+  return { ...binding, [alias]: edges };
 }
 
 function withMergeCreatedState(binding: Binding, created: boolean): Binding {
@@ -547,7 +753,7 @@ function evaluateValue(
     case "rowProperty": {
       const row = binding[expression.alias];
 
-      if (!row || isNode(row) || isEdge(row)) {
+      if (!row || isNode(row) || isEdge(row) || isPath(row) || Array.isArray(row)) {
         return null;
       }
 
@@ -598,6 +804,10 @@ function projectRow(binding: Binding, selections: ReturnSelection[]): MemoryRow 
         return [selection.alias, binding[selection.alias] ?? null];
       }
 
+      if (selection.kind === "aggregate") {
+        return [aggregateSelectionKey(selection), null];
+      }
+
       const entity = binding[selection.alias];
       const key = selection.as ?? `${selection.alias}.${selection.key}`;
       const value = entity && (isNode(entity) || isEdge(entity)) ? entity.properties[selection.key] ?? null : null;
@@ -605,6 +815,177 @@ function projectRow(binding: Binding, selections: ReturnSelection[]): MemoryRow 
       return [key, value];
     }),
   );
+}
+
+function projectAggregatedRows(bindings: Binding[], selections: ReturnSelection[]): MemoryRow[] {
+  const groupSelections = selections.filter((selection) => selection.kind !== "aggregate");
+  const aggregateSelections = selections.filter((selection) => selection.kind === "aggregate");
+  const groups = new Map<string, { values: MemoryRow; bindings: Binding[] }>();
+
+  for (const binding of bindings) {
+    const values = projectRow(binding, groupSelections);
+    const key = stableGroupKey(values);
+    const group = groups.get(key);
+
+    if (group) {
+      group.bindings.push(binding);
+    } else {
+      groups.set(key, { values, bindings: [binding] });
+    }
+  }
+
+  if (groups.size === 0 && groupSelections.length === 0) {
+    groups.set("__all__", { values: {}, bindings: [] });
+  }
+
+  return [...groups.values()].map((group) => ({
+    ...group.values,
+    ...Object.fromEntries(
+      aggregateSelections.map((selection) => [
+        aggregateSelectionKey(selection),
+        evaluateAggregate(selection.fn, selection.target, selection.distinct, group.bindings),
+      ]),
+    ),
+  }));
+}
+
+function evaluateAggregate(
+  fn: AggregateFunction,
+  target: AggregateTargetExpression,
+  distinct: boolean,
+  bindings: Binding[],
+): MemoryValue {
+  const values = aggregateValues(target, bindings, fn === "count");
+  const aggregateInput = distinct ? distinctValues(values) : values;
+
+  switch (fn) {
+    case "count":
+      return target.kind === "all" && !distinct ? bindings.length : aggregateInput.length;
+    case "sum":
+      return numericValues(aggregateInput).reduce((total, value) => total + value, 0);
+    case "avg": {
+      const numbers = numericValues(aggregateInput);
+      return numbers.length === 0 ? null : numbers.reduce((total, value) => total + value, 0) / numbers.length;
+    }
+    case "min":
+      return comparableValues(aggregateInput).sort(comparePrimitiveValues)[0] ?? null;
+    case "max":
+      return comparableValues(aggregateInput).sort(comparePrimitiveValues).at(-1) ?? null;
+    case "collect":
+      return aggregateInput.filter((value) => value !== null);
+  }
+}
+
+function aggregateValues(
+  target: AggregateTargetExpression,
+  bindings: Binding[],
+  keepNulls: boolean,
+): MemoryValue[] {
+  if (target.kind === "all") {
+    return bindings.map((_, index) => index);
+  }
+
+  const values = bindings.map((binding) => evaluateAggregateTarget(target, binding));
+  return keepNulls ? values : values.filter((value) => value !== null);
+}
+
+function evaluateAggregateTarget(target: AggregateTargetExpression, binding: Binding): MemoryValue {
+  switch (target.kind) {
+    case "all":
+      return null;
+    case "aliasRef":
+      return binding[target.alias] ?? null;
+    default:
+      return evaluateValue(target, binding, { params: {} });
+  }
+}
+
+function aggregateSelectionKey(selection: Extract<ReturnSelection, { kind: "aggregate" }>): string {
+  if (selection.as) {
+    return selection.as;
+  }
+
+  const target = aggregateTargetName(selection.target);
+  return `${selection.fn}(${selection.distinct ? "distinct " : ""}${target})`;
+}
+
+function aggregateTargetName(target: AggregateTargetExpression): string {
+  switch (target.kind) {
+    case "all":
+      return "*";
+    case "aliasRef":
+      return target.alias;
+    case "property":
+      return `${target.alias}.${target.key}`;
+    case "rowProperty":
+      return `${target.alias}.${target.key}`;
+    case "parameter":
+      return `$${target.name}`;
+    case "primitive":
+      return String(target.value);
+  }
+}
+
+function distinctValues(values: MemoryValue[]): MemoryValue[] {
+  const seen = new Set<string>();
+  const result: MemoryValue[] = [];
+
+  for (const value of values) {
+    const key = stableValueKey(value);
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(value);
+    }
+  }
+
+  return result;
+}
+
+function numericValues(values: MemoryValue[]): number[] {
+  return values.filter((value): value is number => typeof value === "number");
+}
+
+function comparableValues(values: MemoryValue[]): Array<string | number> {
+  return values.filter((value): value is string | number => typeof value === "string" || typeof value === "number");
+}
+
+function comparePrimitiveValues(left: string | number, right: string | number): number {
+  if (typeof left === "number" && typeof right === "number") {
+    return left - right;
+  }
+
+  return String(left).localeCompare(String(right));
+}
+
+function stableGroupKey(values: MemoryRow): string {
+  return JSON.stringify(
+    Object.entries(values).map(([key, value]) => [key, stableValueKey(value)]),
+  );
+}
+
+function stableValueKey(value: MemoryValue): string {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map(stableValueKey));
+  }
+
+  if (isNode(value)) {
+    return `node:${value.id}`;
+  }
+
+  if (isEdge(value)) {
+    return `edge:${value.id}`;
+  }
+
+  if (isPath(value)) {
+    return `path:${value.nodes.map((node) => node.id).join(",")}:${value.edges.map((edge) => edge.id).join(",")}`;
+  }
+
+  return JSON.stringify(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function primitiveOrNull(value: ParameterValue | undefined): Primitive {
@@ -624,10 +1005,34 @@ function isRowObject(value: unknown): value is MemoryRowObject {
   );
 }
 
-function isNode(entity: BindingValue): entity is MemoryNode {
+function isNode(entity: PathBindingValue): entity is MemoryNode {
   return "labels" in entity;
 }
 
-function isEdge(entity: BindingValue): entity is MemoryEdge {
+function isEdge(entity: PathBindingValue): entity is MemoryEdge {
   return "from" in entity && "to" in entity;
+}
+
+function isPath(entity: PathBindingValue): entity is MemoryPath {
+  return "nodes" in entity && "edges" in entity;
+}
+
+function isEntity(entity: PathBindingValue): entity is MemoryNode | MemoryEdge {
+  return isNode(entity) || isEdge(entity);
+}
+
+function isSamePath(value: PathBindingValue, path: MemoryPath): boolean {
+  return (
+    isPath(value) &&
+    value.nodes.map((node) => node.id).join("\0") === path.nodes.map((node) => node.id).join("\0") &&
+    value.edges.map((edge) => edge.id).join("\0") === path.edges.map((edge) => edge.id).join("\0")
+  );
+}
+
+function isSameEdgeList(value: PathBindingValue, edges: MemoryEdge[]): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length === edges.length &&
+    value.every((edge, index) => edge.id === edges[index]?.id)
+  );
 }

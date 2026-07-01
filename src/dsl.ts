@@ -1,8 +1,11 @@
 import type {
+  AggregateFunction,
+  AggregateTargetExpression,
   BinaryOperator,
   Direction,
   EdgePattern,
   NodePattern,
+  PathPattern,
   Pattern,
   PredicateExpression,
   Primitive,
@@ -12,6 +15,18 @@ import type {
 } from "./ast.js";
 
 type ScopeProperties = Record<string, ValueExpression>;
+
+/**
+ * Options accepted by aggregate helper functions.
+ */
+export type AggregateOptions = {
+  /**
+   * Whether the aggregate should only consider distinct values.
+   */
+  distinct?: boolean;
+};
+
+type AggregateTargetInput = NodeRef | EdgeRef | PathRef | string | ValueExpression;
 
 /**
  * One property assignment accepted by `setProps(...)`.
@@ -172,6 +187,147 @@ export class EdgeRef {
 }
 
 /**
+ * Immutable reference to a variable-length path/traversal pattern.
+ */
+export class PathRef {
+  readonly kind = "pathRef";
+
+  /**
+   * Creates a path reference.
+   *
+   * @param from - Start node reference.
+   * @param label - Relationship/edge label to traverse.
+   * @param to - End node reference.
+   * @param direction - Direction relative to `from` and `to`.
+   * @param minHops - Minimum number of relationships in the path.
+   * @param maxHops - Optional maximum number of relationships in the path.
+   * @param alias - Optional path alias.
+   * @param edgeAlias - Optional relationship-list alias for the traversal.
+   * @param properties - Property constraints applied to every traversed relationship.
+   */
+  constructor(
+    readonly from: NodeRef,
+    readonly label: string,
+    readonly to: NodeRef,
+    readonly direction: Direction = "out",
+    readonly minHops: number = 1,
+    readonly maxHops?: number,
+    readonly alias?: string,
+    readonly edgeAlias?: string,
+    readonly properties: Record<string, ValueExpression> = {},
+  ) {
+    validateHops(minHops, maxHops);
+  }
+
+  /**
+   * Returns a new path reference with a path alias.
+   *
+   * @param alias - Alias used to return or inspect the whole path.
+   * @returns A new path reference with the alias set.
+   */
+  as(alias: string): PathRef {
+    return new PathRef(
+      this.from,
+      this.label,
+      this.to,
+      this.direction,
+      this.minHops,
+      this.maxHops,
+      alias,
+      this.edgeAlias,
+      this.properties,
+    );
+  }
+
+  /**
+   * Returns a new path reference with a relationship-list alias.
+   *
+   * In Cypher this compiles to a relationship variable inside the variable-length
+   * relationship pattern.
+   *
+   * @param alias - Alias for the traversed relationships.
+   * @returns A new path reference with the relationship alias set.
+   */
+  via(alias: string): PathRef {
+    return new PathRef(
+      this.from,
+      this.label,
+      this.to,
+      this.direction,
+      this.minHops,
+      this.maxHops,
+      this.alias,
+      alias,
+      this.properties,
+    );
+  }
+
+  /**
+   * Returns a new path reference with a hop range.
+   *
+   * @param minHops - Minimum number of relationships to traverse.
+   * @param maxHops - Optional maximum number of relationships to traverse.
+   * @returns A new path reference with the hop range set.
+   */
+  hops(minHops: number, maxHops?: number): PathRef {
+    return new PathRef(
+      this.from,
+      this.label,
+      this.to,
+      this.direction,
+      minHops,
+      maxHops,
+      this.alias,
+      this.edgeAlias,
+      this.properties,
+    );
+  }
+
+  /**
+   * Returns a new path reference with relationship property constraints.
+   *
+   * @param properties - Property map using value expressions or primitive literals.
+   * @returns A new path reference with normalized relationship properties.
+   */
+  props(properties: Record<string, ValueExpression | Primitive>): PathRef {
+    return new PathRef(
+      this.from,
+      this.label,
+      this.to,
+      this.direction,
+      this.minHops,
+      this.maxHops,
+      this.alias,
+      this.edgeAlias,
+      normalizeProperties(properties),
+    );
+  }
+
+  /**
+   * Converts this reference to a backend-neutral path pattern.
+   *
+   * @returns The path pattern represented by this reference.
+   */
+  toPattern(): PathPattern {
+    return {
+      kind: "path",
+      from: this.from.toPattern(),
+      to: this.to.toPattern(),
+      edge: {
+        kind: "traversalEdge",
+        label: this.label,
+        direction: this.direction,
+        minHops: this.minHops,
+        properties: this.properties,
+        ...(this.maxHops === undefined ? {} : { maxHops: this.maxHops }),
+        ...(this.edgeAlias ? { alias: this.edgeAlias } : {}),
+      },
+      ...(this.alias ? { alias: this.alias } : {}),
+    };
+  }
+}
+
+/**
  * Immutable fluent builder for constructing a graph query AST.
  */
 export class QueryBuilder {
@@ -221,10 +377,10 @@ export class QueryBuilder {
   /**
    * Adds a match clause.
    *
-   * @param patterns - Node, edge, or raw AST patterns to match.
+   * @param patterns - Node, edge, path, or raw AST patterns to match.
    * @returns A new query builder with the match clause appended.
    */
-  match(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
+  match(...patterns: Array<NodeRef | EdgeRef | PathRef | Pattern>): QueryBuilder {
     return this.addClause({
       kind: "match",
       patterns: patterns.flatMap(patternToAst).map((pattern) => applyScope(pattern, this.scopeProperties)),
@@ -238,9 +394,12 @@ export class QueryBuilder {
    * @returns A new query builder with the create clause appended.
    */
   create(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
+    const astPatterns = patterns.flatMap(patternToAst);
+    assertWritePatterns("create", astPatterns);
+
     return this.addClause({
       kind: "create",
-      patterns: patterns.flatMap(patternToAst).map((pattern) => applyScope(pattern, this.scopeProperties)),
+      patterns: astPatterns.map((pattern) => applyScope(pattern, this.scopeProperties)),
     });
   }
 
@@ -254,9 +413,12 @@ export class QueryBuilder {
    * @returns A new query builder with the merge clause appended.
    */
   merge(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
+    const astPatterns = patterns.flatMap(patternToAst);
+    assertWritePatterns("merge", astPatterns);
+
     return this.addClause({
       kind: "merge",
-      patterns: patterns.flatMap(patternToAst).map((pattern) => applyScope(pattern, this.scopeProperties)),
+      patterns: astPatterns.map((pattern) => applyScope(pattern, this.scopeProperties)),
     });
   }
 
@@ -308,7 +470,7 @@ export class QueryBuilder {
    * @param selections - Aliases or properties to project.
    * @returns A new query builder with the return clause appended.
    */
-  return(...selections: Array<NodeRef | ReturnSelection | ValueExpression>): QueryBuilder {
+  return(...selections: Array<NodeRef | PathRef | string | ReturnSelection | ValueExpression>): QueryBuilder {
     return this.addClause({
       kind: "return",
       selections: selections.map(selectionToAst),
@@ -518,6 +680,38 @@ export function edge(from: NodeRef, label: string, to: NodeRef, direction: Direc
 }
 
 /**
+ * Creates a variable-length traversal/path reference between two nodes.
+ *
+ * By default the path traverses one or more relationships. Use `.hops(min, max)`
+ * to set a bounded or unbounded range.
+ *
+ * @param from - Start node reference.
+ * @param label - Relationship/edge label to traverse.
+ * @param to - End node reference.
+ * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
+ * @returns A path reference.
+ */
+export function traverse(from: NodeRef, label: string, to: NodeRef, direction: Direction = "out"): PathRef {
+  return new PathRef(from, label, to, direction);
+}
+
+/**
+ * Creates an aliased variable-length path reference between two nodes.
+ *
+ * This is a convenience wrapper around `traverse(...).as(alias)`.
+ *
+ * @param alias - Alias used to return or inspect the whole path.
+ * @param from - Start node reference.
+ * @param label - Relationship/edge label to traverse.
+ * @param to - End node reference.
+ * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
+ * @returns An aliased path reference.
+ */
+export function path(alias: string, from: NodeRef, label: string, to: NodeRef, direction: Direction = "out"): PathRef {
+  return traverse(from, label, to, direction).as(alias);
+}
+
+/**
  * Creates a named runtime parameter expression.
  *
  * @param name - Parameter name without backend-specific prefixing.
@@ -580,6 +774,91 @@ export function select(ref: NodeRef | string, key: string, as?: string): ReturnS
     key,
     ...(as ? { as } : {}),
   };
+}
+
+/**
+ * Creates a `count(...)` aggregate return selection.
+ *
+ * Without a target this compiles to `count(*)`.
+ *
+ * @param target - Alias, node/path/edge reference, or value expression to count.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function count(target?: AggregateTargetInput, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("count", target, as, options);
+}
+
+/**
+ * Creates a `count(*)` aggregate return selection.
+ *
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function countAll(as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("count", undefined, as, options);
+}
+
+/**
+ * Creates a `sum(...)` aggregate return selection.
+ *
+ * @param target - Numeric value expression to sum.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function sum(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("sum", target, as, options);
+}
+
+/**
+ * Creates an `avg(...)` aggregate return selection.
+ *
+ * @param target - Numeric value expression to average.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function avg(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("avg", target, as, options);
+}
+
+/**
+ * Creates a `min(...)` aggregate return selection.
+ *
+ * @param target - Value expression to aggregate.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function min(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("min", target, as, options);
+}
+
+/**
+ * Creates a `max(...)` aggregate return selection.
+ *
+ * @param target - Value expression to aggregate.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function max(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("max", target, as, options);
+}
+
+/**
+ * Creates a `collect(...)` aggregate return selection.
+ *
+ * @param target - Alias, node/path/edge reference, or value expression to collect.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function collect(target: AggregateTargetInput, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("collect", target, as, options);
 }
 
 /**
@@ -713,7 +992,7 @@ function normalizeProperties(
   );
 }
 
-function patternToAst(pattern: NodeRef | EdgeRef | Pattern): Pattern[] {
+function patternToAst(pattern: NodeRef | EdgeRef | PathRef | Pattern): Pattern[] {
   if (pattern instanceof NodeRef) {
     return [pattern.toPattern()];
   }
@@ -722,10 +1001,22 @@ function patternToAst(pattern: NodeRef | EdgeRef | Pattern): Pattern[] {
     return [pattern.from.toPattern(), pattern.to.toPattern(), pattern.toPattern()];
   }
 
+  if (pattern instanceof PathRef) {
+    return [pattern.toPattern()];
+  }
+
   return [pattern];
 }
 
 function applyScope(pattern: Pattern, scopeProperties: ScopeProperties): Pattern {
+  if (pattern.kind === "path") {
+    return {
+      ...pattern,
+      from: applyScope(pattern.from, scopeProperties) as NodePattern,
+      to: applyScope(pattern.to, scopeProperties) as NodePattern,
+    };
+  }
+
   if (pattern.kind !== "node" || Object.keys(scopeProperties).length === 0) {
     return pattern;
   }
@@ -745,8 +1036,85 @@ function applyScope(pattern: Pattern, scopeProperties: ScopeProperties): Pattern
   };
 }
 
-function selectionToAst(selection: NodeRef | ReturnSelection | ValueExpression): ReturnSelection {
+function assertWritePatterns(method: "create" | "merge", patterns: Pattern[]): void {
+  const hasPathPattern = patterns.some((pattern) => pattern.kind === "path");
+
+  if (hasPathPattern) {
+    throw new Error(`${method}() does not support path/traversal patterns. Use match(...) for traversals.`);
+  }
+}
+
+function aggregate(
+  fn: AggregateFunction,
+  target: AggregateTargetInput | undefined,
+  as: string | undefined,
+  options: AggregateOptions,
+): ReturnSelection {
+  return {
+    kind: "aggregate",
+    fn,
+    target: targetToAggregateExpression(target),
+    distinct: options.distinct === true,
+    ...(as ? { as } : {}),
+  };
+}
+
+function targetToAggregateExpression(target: AggregateTargetInput | undefined): AggregateTargetExpression {
+  if (target === undefined) {
+    return { kind: "all" };
+  }
+
+  if (typeof target === "string") {
+    return { kind: "aliasRef", alias: target };
+  }
+
+  if (target instanceof NodeRef) {
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  if (target instanceof EdgeRef) {
+    if (!target.alias) {
+      throw new Error("Aggregate edge targets must be aliased, for example count(edge(a, \"KNOWS\", b).as(\"r\")).");
+    }
+
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  if (target instanceof PathRef) {
+    if (!target.alias) {
+      throw new Error("Aggregate path targets must be aliased, for example count(path(\"p\", a, \"KNOWS\", b)).");
+    }
+
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  return target;
+}
+
+function validateHops(minHops: number, maxHops: number | undefined): void {
+  if (!Number.isInteger(minHops) || minHops < 0) {
+    throw new Error("Traversal minHops must be a non-negative integer.");
+  }
+
+  if (maxHops !== undefined && (!Number.isInteger(maxHops) || maxHops < minHops)) {
+    throw new Error("Traversal maxHops must be an integer greater than or equal to minHops.");
+  }
+}
+
+function selectionToAst(selection: NodeRef | PathRef | string | ReturnSelection | ValueExpression): ReturnSelection {
+  if (typeof selection === "string") {
+    return { kind: "alias", alias: selection };
+  }
+
   if (selection instanceof NodeRef) {
+    return { kind: "alias", alias: selection.alias };
+  }
+
+  if (selection instanceof PathRef) {
+    if (!selection.alias) {
+      throw new Error("return() expects an aliased path, for example return(path(\"p\", a, \"KNOWS\", b)).");
+    }
+
     return { kind: "alias", alias: selection.alias };
   }
 
@@ -762,6 +1130,10 @@ function selectionToAst(selection: NodeRef | ReturnSelection | ValueExpression):
   }
 
   if (selection.kind === "alias") {
+    return selection;
+  }
+
+  if (selection.kind === "aggregate") {
     return selection;
   }
 

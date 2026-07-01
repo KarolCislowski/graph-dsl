@@ -1,9 +1,11 @@
 import type {
+  AggregateTargetExpression,
   Clause,
   CompilerOutput,
   EdgePattern,
   NodePattern,
   ParameterValue,
+  PathPattern,
   Pattern,
   PredicateExpression,
   QueryAst,
@@ -70,7 +72,7 @@ function compileClause(clause: Clause, context: CypherContext): string {
     case "where":
       return `WHERE ${compilePredicate(clause.predicate, context)}`;
     case "return":
-      return `RETURN ${clause.selections.map(compileReturnSelection).join(", ")}`;
+      return `RETURN ${clause.selections.map((selection) => compileReturnSelection(selection, context)).join(", ")}`;
     case "set":
       return `SET ${escapeIdentifier(clause.alias)}.${escapeIdentifier(clause.key)} = ${compileValue(
         clause.value,
@@ -113,6 +115,14 @@ function groupPatterns(patterns: Pattern[]): Pattern[][] {
   const consumedNodeAliases = new Set<string>();
 
   for (const pattern of patterns) {
+    if (pattern.kind === "path") {
+      groups.push([pattern]);
+      consumedNodeAliases.add(pattern.from.alias);
+      consumedNodeAliases.add(pattern.to.alias);
+    }
+  }
+
+  for (const pattern of patterns) {
     if (pattern.kind === "edge") {
       const from = patterns.find((candidate) => candidate.kind === "node" && candidate.alias === pattern.from);
       const to = patterns.find((candidate) => candidate.kind === "node" && candidate.alias === pattern.to);
@@ -137,6 +147,10 @@ function groupPatterns(patterns: Pattern[]): Pattern[][] {
 }
 
 function compilePatternGroup(group: Pattern[], context: CypherContext): string {
+  if (group.length === 1 && group[0]?.kind === "path") {
+    return compilePath(group[0], context);
+  }
+
   if (group.length === 1 && group[0]?.kind === "node") {
     return compileNode(group[0], context);
   }
@@ -148,6 +162,25 @@ function compilePatternGroup(group: Pattern[], context: CypherContext): string {
   }
 
   return compileEdgePath(from, edge, to, context);
+}
+
+function compilePath(path: PathPattern, context: CypherContext): string {
+  const body = compileTraversalPath(path, context);
+
+  return path.alias ? `${escapeIdentifier(path.alias)} = ${body}` : body;
+}
+
+function compileTraversalPath(path: PathPattern, context: CypherContext): string {
+  const edgeText = compileTraversalEdge(path, context);
+
+  switch (path.edge.direction) {
+    case "out":
+      return `${compileNode(path.from, context)}-${edgeText}->${compileNode(path.to, context)}`;
+    case "in":
+      return `${compileNode(path.from, context)}<-${edgeText}-${compileNode(path.to, context)}`;
+    case "both":
+      return `${compileNode(path.from, context)}-${edgeText}-${compileNode(path.to, context)}`;
+  }
 }
 
 function compileEdgePath(
@@ -183,6 +216,27 @@ function compileEdge(edge: EdgePattern, context: CypherContext): string {
   return `[${alias}${label}${properties}]`;
 }
 
+function compileTraversalEdge(path: PathPattern, context: CypherContext): string {
+  const alias = path.edge.alias ? escapeIdentifier(path.edge.alias) : "";
+  const label = path.edge.label ? `:${escapeIdentifier(path.edge.label)}` : "";
+  const range = compileHopRange(path.edge.minHops, path.edge.maxHops);
+  const properties = compileProperties(path.edge.properties, context);
+
+  return `[${alias}${label}${range}${properties}]`;
+}
+
+function compileHopRange(minHops: number, maxHops: number | undefined): string {
+  if (maxHops === undefined) {
+    return `*${minHops}..`;
+  }
+
+  if (minHops === maxHops) {
+    return `*${minHops}`;
+  }
+
+  return `*${minHops}..${maxHops}`;
+}
+
 function compileProperties(
   properties: Record<string, ValueExpression>,
   context: CypherContext,
@@ -215,7 +269,7 @@ function compilePredicate(predicate: PredicateExpression, context: CypherContext
   }
 }
 
-function compileReturnSelection(selection: ReturnSelection): string {
+function compileReturnSelection(selection: ReturnSelection, context: CypherContext): string {
   switch (selection.kind) {
     case "alias":
       return escapeIdentifier(selection.alias);
@@ -223,6 +277,24 @@ function compileReturnSelection(selection: ReturnSelection): string {
       const expression = `${escapeIdentifier(selection.alias)}.${escapeIdentifier(selection.key)}`;
       return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
     }
+    case "aggregate": {
+      const expression = `${selection.fn}(${selection.distinct ? "DISTINCT " : ""}${compileAggregateTarget(
+        selection.target,
+        context,
+      )})`;
+      return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
+    }
+  }
+}
+
+function compileAggregateTarget(target: AggregateTargetExpression, context: CypherContext): string {
+  switch (target.kind) {
+    case "all":
+      return "*";
+    case "aliasRef":
+      return escapeIdentifier(target.alias);
+    default:
+      return compileValue(target, context);
   }
 }
 

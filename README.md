@@ -23,6 +23,8 @@ The current package is an MVP. It already supports a neutral AST, a fluent DSL, 
 - [Query Operations](#query-operations)
 - [Runtime Schemas](#runtime-schemas)
 - [Bulk Operations](#bulk-operations)
+- [Path Traversal](#path-traversal)
+- [Aggregations](#aggregations)
 - [Predicates](#predicates)
 - [Returning Data](#returning-data)
 - [Cypher Compiler](#cypher-compiler)
@@ -149,6 +151,31 @@ Edges can also be aliased, which is useful for returning or deleting them:
 ```ts
 const relation = edge(user, "FOLLOWS", friend).as("r");
 ```
+
+### Paths And Traversals
+
+Use `traverse(...)` when you want to match a variable-length relationship chain instead of one fixed edge:
+
+```ts
+const source = node("source", "Person");
+const target = node("target", "Person");
+
+const traversal = traverse(source, "KNOWS", target).hops(1, 3);
+```
+
+This compiles to a variable-length relationship:
+
+```cypher
+(source:Person)-[:KNOWS*1..3]->(target:Person)
+```
+
+Use `path(alias, ...)` when you want to name and return the whole path:
+
+```ts
+const p = path("p", source, "KNOWS", target).hops(1, 3);
+```
+
+`hops(min, max)` sets a bounded traversal range. `hops(min)` means `min` or more hops in Cypher. The in-memory executor requires a bounded `max` to avoid open-ended graph walks in tests.
 
 ### Properties
 
@@ -308,6 +335,64 @@ Cypher output:
 MATCH (u:User)-[:WROTE]->(p:Post)
 WHERE u.email = $email
 RETURN p.title AS title, u.name AS author
+```
+
+### Path Traversal
+
+Use `traverse(...)` for variable-length graph reads:
+
+```ts
+const source = node("source", "Person").props({ id: param("sourceId") });
+const target = node("target", "Person").props({ id: param("targetId") });
+
+const ast = query()
+  .match(traverse(source, "KNOWS", target).hops(1, 3))
+  .return(target)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (source:Person { id: $sourceId })-[:KNOWS*1..3]->(target:Person { id: $targetId })
+RETURN target
+```
+
+Use `path(alias, ...)` to bind the whole path:
+
+```ts
+const ast = query()
+  .match(path("p", source, "KNOWS", target).hops(1, 3))
+  .return("p", select(target, "id", "targetId"))
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH p = (source:Person { id: $sourceId })-[:KNOWS*1..3]->(target:Person { id: $targetId })
+RETURN p, target.id AS targetId
+```
+
+Traversals can be undirected, can bind the traversed relationships, and can apply relationship property filters:
+
+```ts
+const ast = query()
+  .match(
+    traverse(source, "KNOWS", target, "both")
+      .hops(2, 2)
+      .via("rels")
+      .props({ active: true }),
+  )
+  .return("rels", target)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (source:Person { id: $sourceId })-[rels:KNOWS*2 { active: $p0 }]-(target:Person { id: $targetId })
+RETURN rels, target
 ```
 
 ### Create
@@ -821,6 +906,63 @@ for (const usersBatch of chunk(hugeUsersArray, { batchSize: 1000 })) {
 }
 ```
 
+## Aggregations
+
+Aggregate helpers are return selections. Use them inside `return(...)` together with aliases or property selections.
+
+```ts
+import { collect, count, countAll, edge, node, prop, query, select } from "graph-dsl";
+
+const user = node("u", "User");
+const post = node("p", "Post");
+
+const ast = query()
+  .match(edge(user, "WROTE", post))
+  .return(
+    select(user, "role", "role"),
+    countAll("rows"),
+    count(post, "postCount"),
+    collect(prop(post, "title"), "titles", { distinct: true }),
+  )
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)-[:WROTE]->(p:Post)
+RETURN u.role AS role, count(*) AS rows, count(p) AS postCount, collect(DISTINCT p.title) AS titles
+```
+
+Cypher groups by every non-aggregate return selection. In the example above, results are grouped by `u.role`.
+
+Supported aggregate helpers:
+
+| Helper | Meaning | Example |
+| --- | --- | --- |
+| `countAll(as)` | Counts rows with `count(*)`. | `countAll("rows")` |
+| `count(target, as)` | Counts non-null values for an alias or expression. | `count(node("u"), "users")` |
+| `sum(expression, as)` | Sums numeric values. | `sum(prop("u", "score"), "totalScore")` |
+| `avg(expression, as)` | Averages numeric values. | `avg(prop("u", "score"), "avgScore")` |
+| `min(expression, as)` | Returns the smallest value. | `min(prop("u", "age"), "youngest")` |
+| `max(expression, as)` | Returns the largest value. | `max(prop("u", "age"), "oldest")` |
+| `collect(target, as)` | Collects values into a list. | `collect(prop("u", "email"), "emails")` |
+
+Every aggregate helper accepts `{ distinct: true }` as the last argument:
+
+```ts
+query()
+  .match(node("u", "User"))
+  .return(count(prop("u", "role"), "roles", { distinct: true }));
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+RETURN count(DISTINCT u.role) AS roles
+```
+
 ## Predicates
 
 Predicates describe boolean conditions, usually passed to `where(...)`.
@@ -974,6 +1116,8 @@ const rows = executeMemory(ast, graph, {
 
 `executeMemory(...)` mutates the graph for `create`, `createEdge`, `merge`, `mergeEdge`, `set`, `setProps`, and `delete` operations.
 
+For traversal tests, `executeMemory(...)` supports bounded path patterns. Use `.hops(min, max)` with a finite `max`.
+
 ## AST Shape
 
 The AST is intentionally small:
@@ -1003,6 +1147,24 @@ type Clause =
   | DeleteClause;
 ```
 
+Supported pattern kinds:
+
+```ts
+type Pattern =
+  | NodePattern
+  | EdgePattern
+  | PathPattern;
+```
+
+Return selections can project aliases, properties, or aggregates:
+
+```ts
+type ReturnSelection =
+  | AliasSelection
+  | PropertySelection
+  | AggregateSelection;
+```
+
 You can inspect it directly:
 
 ```ts
@@ -1014,9 +1176,11 @@ console.log(JSON.stringify(ast, null, 2));
 - Gremlin compiler is not implemented yet.
 - Runtime schemas currently support `string`, `number`, and `boolean` fields.
 - Typed compile-time schema API is not implemented yet.
+- Path/traversal patterns are read-only and can be used with `match(...)`; `create(...)` and `merge(...)` reject them.
+- The memory executor requires `maxHops` for traversal patterns. Cypher compilation can emit unbounded traversals such as `*1..`.
 - `set(...)`, `onCreateSet(...)`, and `onMatchSet(...)` update one property at a time; use `setProps(...)`, `onCreateSetProps(...)`, or `onMatchSetProps(...)` for schema-generated multi-property patches.
 - The memory executor is intentionally small and not a full database; it is meant for tests, mocks, and semantic checks.
-- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, `CREATE`, `MERGE`, merge-specific `ON CREATE SET`/`ON MATCH SET`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
+- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, variable-length path traversal, `CREATE`, `MERGE`, merge-specific `ON CREATE SET`/`ON MATCH SET`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `RETURN` with aggregate projections, `SET`, and `DELETE`.
 - Batch helpers are driver-neutral and sequential by default; there is no built-in Neo4j session/transaction adapter yet.
 
 ## Roadmap
