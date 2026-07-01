@@ -127,8 +127,14 @@ export function executeMemory(
       case "create":
         bindings = createPatterns(bindings, clause.patterns, graph, context);
         break;
+      case "merge":
+        bindings = mergePatterns(bindings, clause.patterns, graph, context);
+        break;
       case "createEdge":
         bindings = createEdges(bindings, clause.edges, graph, context);
+        break;
+      case "mergeEdge":
+        bindings = mergeEdges(bindings, clause.edges, graph, context);
         break;
       case "where":
         bindings = bindings.filter((binding) => evaluatePredicate(clause.predicate, binding, context));
@@ -212,6 +218,34 @@ function createPatterns(
   );
 }
 
+function mergePatterns(
+  bindings: Binding[],
+  patterns: Pattern[],
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding[] {
+  return patterns.reduce(
+    (currentBindings, pattern) =>
+      currentBindings.map((binding) => mergePattern(binding, pattern, graph, context)),
+    bindings,
+  );
+}
+
+function mergePattern(
+  binding: Binding,
+  pattern: Pattern,
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding {
+  const matches = matchPattern(binding, pattern, graph, context);
+
+  if (matches.length > 0) {
+    return matches[0] ?? binding;
+  }
+
+  return createPattern(binding, pattern, graph, context);
+}
+
 function createPattern(
   binding: Binding,
   pattern: Pattern,
@@ -270,6 +304,34 @@ function createEdges(
       currentBindings.map((binding) => createEdge(binding, edge, graph, context)),
     bindings,
   );
+}
+
+function mergeEdges(
+  bindings: Binding[],
+  edges: EdgePattern[],
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding[] {
+  return edges.reduce(
+    (currentBindings, edge) =>
+      currentBindings.map((binding) => mergeEdge(binding, edge, graph, context)),
+    bindings,
+  );
+}
+
+function mergeEdge(
+  binding: Binding,
+  pattern: EdgePattern,
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding {
+  const matches = matchPattern(binding, pattern, graph, context);
+
+  if (matches.length > 0) {
+    return matches[0] ?? binding;
+  }
+
+  return createEdge(binding, pattern, graph, context);
 }
 
 function createEdge(

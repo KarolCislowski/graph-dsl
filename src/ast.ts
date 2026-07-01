@@ -154,12 +154,32 @@ export type CreateClause = {
 };
 
 /**
+ * Clause describing graph patterns to merge.
+ *
+ * Properties in merge patterns are identity properties for the merge.
+ */
+export type MergeClause = {
+  kind: "merge";
+  patterns: Pattern[];
+};
+
+/**
  * Clause describing edges to create between already-bound node aliases.
  *
  * Unlike `CreateClause`, this clause does not create the endpoint nodes.
  */
 export type CreateEdgeClause = {
   kind: "createEdge";
+  edges: EdgePattern[];
+};
+
+/**
+ * Clause describing edges to merge between already-bound node aliases.
+ *
+ * Unlike `MergeClause`, this clause does not merge the endpoint nodes.
+ */
+export type MergeEdgeClause = {
+  kind: "mergeEdge";
   edges: EdgePattern[];
 };
 
@@ -230,7 +250,9 @@ export type Clause =
   | UnwindClause
   | MatchClause
   | CreateClause
+  | MergeClause
   | CreateEdgeClause
+  | MergeEdgeClause
   | WhereClause
   | ReturnClause
   | SetPropertyClause

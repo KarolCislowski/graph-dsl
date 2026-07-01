@@ -331,6 +331,47 @@ CREATE (u:User { email: $email, name: $name })
 RETURN u.email AS email
 ```
 
+### Merge
+
+Use `merge(...)` when a node pattern should be found or created by identity properties:
+
+```ts
+const ast = query()
+  .scope({ tenantId: param("tenantId") })
+  .merge(node("u", "User").props({ id: param("userId") }))
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MERGE (u:User { id: $userId, tenantId: $tenantId })
+```
+
+Use `mergeEdge(...)` when the endpoint nodes are already bound:
+
+```ts
+const user = node("u", "User").props({ id: param("userId") });
+const post = node("p", "Post").props({ id: param("postId") });
+
+const ast = query()
+  .scope({ tenantId: param("tenantId") })
+  .merge(user)
+  .merge(post)
+  .mergeEdge(edge(user, "WROTE", post).props({ role: "author" }))
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MERGE (u:User { id: $userId, tenantId: $tenantId })
+MERGE (p:Post { id: $postId, tenantId: $tenantId })
+MERGE (u)-[:WROTE { role: $p0 }]->(p)
+```
+
+Properties inside a `merge(...)` pattern are identity properties. If you want to merge by one field and update other fields, merge the identity pattern first and then use `set(...)` or `setProps(...)`.
+
 ### Update
 
 ```ts
@@ -854,7 +895,7 @@ const rows = executeMemory(ast, graph, {
 });
 ```
 
-`executeMemory(...)` mutates the graph for `create`, `createEdge`, `set`, `setProps`, and `delete` operations.
+`executeMemory(...)` mutates the graph for `create`, `createEdge`, `merge`, `mergeEdge`, `set`, `setProps`, and `delete` operations.
 
 ## AST Shape
 
@@ -874,7 +915,9 @@ type Clause =
   | UnwindClause
   | MatchClause
   | CreateClause
+  | MergeClause
   | CreateEdgeClause
+  | MergeEdgeClause
   | WhereClause
   | ReturnClause
   | SetPropertyClause
@@ -894,7 +937,7 @@ console.log(JSON.stringify(ast, null, 2));
 - Typed compile-time schema API is not implemented yet.
 - `set(...)` updates one property at a time; use `setProps(...)` for schema-generated multi-property patches.
 - The memory executor is intentionally small and not a full database; it is meant for tests, mocks, and semantic checks.
-- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, `CREATE`, relationship-only `CREATE` via `createEdge(...)`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
+- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, `CREATE`, `MERGE`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
 - Batch helpers are driver-neutral and sequential by default; there is no built-in Neo4j session/transaction adapter yet.
 
 ## Roadmap

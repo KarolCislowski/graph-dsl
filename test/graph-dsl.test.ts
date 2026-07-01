@@ -193,6 +193,72 @@ describe("graph-dsl", () => {
     expect(graph.nodes).toHaveLength(0);
   });
 
+  it("compiles merge operations to Cypher", () => {
+    const user = node("u", "User").props({ id: param("userId") });
+    const post = node("p", "Post").props({ id: param("postId") });
+
+    expect(
+      compileCypher(
+        query()
+          .scope({ tenantId: param("tenantId") })
+          .merge(user)
+          .merge(post)
+          .mergeEdge(edge(user, "WROTE", post).props({ role: "author" }))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MERGE (u:User { id: $userId, tenantId: $tenantId })\nMERGE (p:Post { id: $postId, tenantId: $tenantId })\nMERGE (u)-[:WROTE { role: $p0 }]->(p)",
+      params: {
+        p0: "author",
+      },
+    });
+  });
+
+  it("executes merge operations against a memory graph without duplicating matches", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["User"], properties: { id: "user-1", tenantId: "tenant-1" } },
+      ],
+      edges: [],
+    };
+
+    const user = node("u", "User").props({ id: param("userId") });
+    const post = node("p", "Post").props({ id: param("postId") });
+    const ast = query()
+      .scope({ tenantId: param("tenantId") })
+      .merge(user)
+      .merge(post)
+      .mergeEdge(edge(user, "WROTE", post).props({ role: "author" }))
+      .toAst();
+
+    expect(
+      executeMemory(ast, graph, {
+        params: {
+          tenantId: "tenant-1",
+          userId: "user-1",
+          postId: "post-1",
+        },
+      }),
+    ).toHaveLength(1);
+    expect(
+      executeMemory(ast, graph, {
+        params: {
+          tenantId: "tenant-1",
+          userId: "user-1",
+          postId: "post-1",
+        },
+      }),
+    ).toHaveLength(1);
+    expect(graph.nodes).toHaveLength(2);
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0]).toMatchObject({
+      label: "WROTE",
+      from: "node-1",
+      properties: { role: "author" },
+    });
+  });
+
   it("applies scoped properties to every matched and created node", () => {
     const user = node("u", "User");
     const post = node("p", "Post").props({

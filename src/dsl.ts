@@ -245,6 +245,22 @@ export class QueryBuilder {
   }
 
   /**
+   * Adds a merge clause.
+   *
+   * Properties in merged node or edge patterns are identity properties for the
+   * merge. Scoped properties are applied to node patterns.
+   *
+   * @param patterns - Node, edge, or raw AST patterns to merge.
+   * @returns A new query builder with the merge clause appended.
+   */
+  merge(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
+    return this.addClause({
+      kind: "merge",
+      patterns: patterns.flatMap(patternToAst).map((pattern) => applyScope(pattern, this.scopeProperties)),
+    });
+  }
+
+  /**
    * Adds a create-edge clause for relationships between already-bound nodes.
    *
    * Use this after `match(...)` when the endpoint nodes already exist. Use
@@ -256,6 +272,22 @@ export class QueryBuilder {
   createEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
     return this.addClause({
       kind: "createEdge",
+      edges: edges.map((edge) => (edge instanceof EdgeRef ? edge.toPattern() : edge)),
+    });
+  }
+
+  /**
+   * Adds a merge-edge clause for relationships between already-bound nodes.
+   *
+   * Use this after `match(...)` or `merge(...)` when endpoint nodes are already
+   * bound. The endpoint nodes are not merged by this clause.
+   *
+   * @param edges - Edge references or raw edge patterns to merge.
+   * @returns A new query builder with the merge-edge clause appended.
+   */
+  mergeEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
+    return this.addClause({
+      kind: "mergeEdge",
       edges: edges.map((edge) => (edge instanceof EdgeRef ? edge.toPattern() : edge)),
     });
   }

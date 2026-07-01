@@ -61,8 +61,12 @@ function compileClause(clause: Clause, context: CypherContext): string {
       return `MATCH ${compilePatterns(clause.patterns, context)}`;
     case "create":
       return `CREATE ${compilePatterns(clause.patterns, context)}`;
+    case "merge":
+      return `MERGE ${compilePatterns(clause.patterns, context)}`;
     case "createEdge":
       return `CREATE ${clause.edges.map((edge) => compileBoundEdgePath(edge, context)).join(", ")}`;
+    case "mergeEdge":
+      return `MERGE ${clause.edges.map((edge) => compileBoundEdgePath(edge, context)).join(", ")}`;
     case "where":
       return `WHERE ${compilePredicate(clause.predicate, context)}`;
     case "return":
