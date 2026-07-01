@@ -451,6 +451,53 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("guards every node and edge when returning a scoped path", () => {
+    const source = node("source", "Person");
+    const target = node("target", "Person");
+
+    expect(
+      compileCypher(
+        query()
+          .scope({ tenantId: param("tenantId") })
+          .match(path("p", source, "KNOWS", target).hops(1, 2))
+          .return("p")
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH p = (source:Person { tenantId: $tenantId })-[:KNOWS*1..2 { tenantId: $tenantId }]->(target:Person { tenantId: $tenantId })\nWHERE all(n IN nodes(p) WHERE n.tenantId = $tenantId) AND all(r IN relationships(p) WHERE r.tenantId = $tenantId)\nWITH *\nRETURN p",
+      params: {},
+    });
+  });
+
+  it("excludes scoped memory paths with out-of-scope intermediate nodes", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["Person"], properties: { tenantId: "tenant-1", id: "source" } },
+        { id: "node-2", labels: ["Person"], properties: { tenantId: "tenant-2", id: "middle" } },
+        { id: "node-3", labels: ["Person"], properties: { tenantId: "tenant-1", id: "target" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "KNOWS", from: "node-1", to: "node-2", properties: { tenantId: "tenant-1" } },
+        { id: "edge-2", label: "KNOWS", from: "node-2", to: "node-3", properties: { tenantId: "tenant-1" } },
+      ],
+    };
+    const source = node("source", "Person").props({ id: "source" });
+    const target = node("target", "Person").props({ id: "target" });
+
+    expect(
+      executeMemory(
+        query()
+          .scope({ tenantId: param("tenantId") })
+          .match(path("p", source, "KNOWS", target).hops(2, 2))
+          .return("p")
+          .toAst(),
+        graph,
+        { params: { tenantId: "tenant-1" } },
+      ),
+    ).toEqual([]);
+  });
+
   it("compiles aggregate return selections to Cypher", () => {
     const user = node("u", "User");
     const post = node("p", "Post");

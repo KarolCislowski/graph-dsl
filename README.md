@@ -289,6 +289,25 @@ query()
 
 The generated node patterns and the `WROTE` relationship all get `tenantId`. Traversal relationships created with `traverse(...)` get the same scoped properties too.
 
+When an aliased path is matched with `path("p", ...)`, scope is also enforced against the full returned path:
+
+```ts
+const ast = query()
+  .scope({ tenantId: param("tenantId") })
+  .match(path("p", node("a", "Person"), "KNOWS", node("b", "Person")).hops(1, 3))
+  .return("p")
+  .toAst();
+```
+
+Cypher output includes guards for every node and relationship inside `p`:
+
+```cypher
+MATCH p = (a:Person { tenantId: $tenantId })-[:KNOWS*1..3 { tenantId: $tenantId }]->(b:Person { tenantId: $tenantId })
+WHERE all(n IN nodes(p) WHERE n.tenantId = $tenantId) AND all(r IN relationships(p) WHERE r.tenantId = $tenantId)
+WITH *
+RETURN p
+```
+
 Scope also applies to created nodes:
 
 ```ts

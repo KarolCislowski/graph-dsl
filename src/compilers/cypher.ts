@@ -60,7 +60,7 @@ function compileClause(clause: Clause, context: CypherContext): string {
     case "unwind":
       return `UNWIND ${compileValue(clause.source, context)} AS ${escapeIdentifier(clause.as)}`;
     case "match":
-      return `MATCH ${compilePatterns(clause.patterns, context)}`;
+      return compileMatchClause(clause.patterns, context);
     case "create":
       return `CREATE ${compilePatterns(clause.patterns, context)}`;
     case "merge":
@@ -91,6 +91,17 @@ function compileClause(clause: Clause, context: CypherContext): string {
     case "delete":
       return `DELETE ${clause.aliases.map(escapeIdentifier).join(", ")}`;
   }
+}
+
+function compileMatchClause(patterns: Pattern[], context: CypherContext): string {
+  const match = `MATCH ${compilePatterns(patterns, context)}`;
+  const pathScopePredicates = compilePathScopePredicates(patterns, context);
+
+  if (pathScopePredicates.length === 0) {
+    return match;
+  }
+
+  return `${match}\nWHERE ${pathScopePredicates.join(" AND ")}\nWITH *`;
 }
 
 function compileBoundEdgePath(edge: EdgePattern, context: CypherContext): string {
@@ -168,6 +179,33 @@ function compilePath(path: PathPattern, context: CypherContext): string {
   const body = compileTraversalPath(path, context);
 
   return path.alias ? `${escapeIdentifier(path.alias)} = ${body}` : body;
+}
+
+function compilePathScopePredicates(patterns: Pattern[], context: CypherContext): string[] {
+  return patterns.flatMap((pattern) => {
+    if (pattern.kind !== "path" || !pattern.alias || !pattern.scopeProperties) {
+      return [];
+    }
+
+    const nodePredicate = compilePathEntityScopePredicate("n", pattern.scopeProperties, context);
+    const edgePredicate = compilePathEntityScopePredicate("r", pattern.scopeProperties, context);
+    const alias = escapeIdentifier(pattern.alias);
+
+    return [
+      `all(n IN nodes(${alias}) WHERE ${nodePredicate})`,
+      `all(r IN relationships(${alias}) WHERE ${edgePredicate})`,
+    ];
+  });
+}
+
+function compilePathEntityScopePredicate(
+  entityAlias: string,
+  scopeProperties: Record<string, ValueExpression>,
+  context: CypherContext,
+): string {
+  return Object.entries(scopeProperties)
+    .map(([key, expression]) => `${entityAlias}.${escapeIdentifier(key)} = ${compileValue(expression, context)}`)
+    .join(" AND ");
 }
 
 function compileTraversalPath(path: PathPattern, context: CypherContext): string {

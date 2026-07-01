@@ -1013,6 +1013,7 @@ function applyScope(pattern: Pattern, scopeProperties: ScopeProperties): Pattern
       ...pattern,
       from: applyScope(pattern.from, scopeProperties) as NodePattern,
       to: applyScope(pattern.to, scopeProperties) as NodePattern,
+      ...(Object.keys(scopeProperties).length === 0 ? {} : { scopeProperties }),
       edge: {
         ...pattern.edge,
         properties: applyScopeToProperties(

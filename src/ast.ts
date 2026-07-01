@@ -157,6 +157,7 @@ export type PathPattern = {
   from: NodePattern;
   edge: TraversalEdgePattern;
   to: NodePattern;
+  scopeProperties?: Record<string, ValueExpression>;
 };
 
 /**

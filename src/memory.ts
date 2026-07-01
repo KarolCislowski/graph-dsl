@@ -539,6 +539,10 @@ function bindPathEnd(state: PathSearchState): Binding[] {
     return [];
   }
 
+  if (!matchesPathScope(state.pattern, state.nodes, state.edges, state.binding, state.context)) {
+    return [];
+  }
+
   return bindEntity(state.binding, state.pattern.to.alias, state.currentNode).flatMap((binding) => {
     const pathBinding = bindPathAlias(binding, state.pattern.alias, {
       nodes: state.nodes,
@@ -552,6 +556,34 @@ function bindPathEnd(state: PathSearchState): Binding[] {
     const edgeAliasBinding = bindTraversalEdgeAlias(pathBinding, state.pattern.edge.alias, state.edges);
     return edgeAliasBinding ? [edgeAliasBinding] : [];
   });
+}
+
+function matchesPathScope(
+  pattern: PathPattern,
+  nodes: MemoryNode[],
+  edges: MemoryEdge[],
+  binding: Binding,
+  context: MemoryContext,
+): boolean {
+  if (!pattern.scopeProperties) {
+    return true;
+  }
+
+  return (
+    nodes.every((node) => matchesScopedProperties(node.properties, pattern.scopeProperties!, binding, context)) &&
+    edges.every((edge) => matchesScopedProperties(edge.properties, pattern.scopeProperties!, binding, context))
+  );
+}
+
+function matchesScopedProperties(
+  properties: Record<string, Primitive>,
+  scopeProperties: Record<string, ValueExpression>,
+  binding: Binding,
+  context: MemoryContext,
+): boolean {
+  return Object.entries(scopeProperties).every(([key, expression]) =>
+    properties[key] === evaluateValue(expression, binding, context),
+  );
 }
 
 function nextTraversalSteps(state: PathSearchState): Array<{ edge: MemoryEdge; node: MemoryNode }> {
