@@ -76,6 +76,16 @@ function compileClause(clause: Clause, context: CypherContext): string {
         clause.value,
         context,
       )}`;
+    case "onCreateSet":
+      return `ON CREATE SET ${escapeIdentifier(clause.alias)}.${escapeIdentifier(clause.key)} = ${compileValue(
+        clause.value,
+        context,
+      )}`;
+    case "onMatchSet":
+      return `ON MATCH SET ${escapeIdentifier(clause.alias)}.${escapeIdentifier(clause.key)} = ${compileValue(
+        clause.value,
+        context,
+      )}`;
     case "delete":
       return `DELETE ${clause.aliases.map(escapeIdentifier).join(", ")}`;
   }

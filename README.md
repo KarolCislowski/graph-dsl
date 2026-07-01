@@ -370,7 +370,45 @@ MERGE (p:Post { id: $postId, tenantId: $tenantId })
 MERGE (u)-[:WROTE { role: $p0 }]->(p)
 ```
 
-Properties inside a `merge(...)` pattern are identity properties. If you want to merge by one field and update other fields, merge the identity pattern first and then use `set(...)` or `setProps(...)`.
+Properties inside a `merge(...)` pattern are identity properties. If you want to merge by one field and update other fields, merge the identity pattern first and then use `set(...)`, `setProps(...)`, `onCreateSet(...)`, or `onMatchSet(...)`.
+
+Use `onCreateSet(...)` for values that should be written only when the merge creates a new node or edge. Use `onMatchSet(...)` for values that should be written only when the merge finds an existing node or edge:
+
+```ts
+const ast = query()
+  .merge(node("p", "Person").props({ id: param("personId") }))
+  .onCreateSet(prop("p", "createdAt"), param("now"))
+  .onMatchSet(prop("p", "updatedAt"), param("now"))
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MERGE (p:Person { id: $personId })
+ON CREATE SET p.createdAt = $now
+ON MATCH SET p.updatedAt = $now
+```
+
+Schema patches can be used with merge-specific setters too:
+
+```ts
+const identity = Person.identity("p", formData, ["id"]);
+const createPatch = Person.patch("p", {
+  name: formData.name,
+  createdAt: formData.createdAt,
+});
+const matchPatch = Person.patch("p", {
+  name: formData.name,
+  updatedAt: formData.updatedAt,
+});
+
+const ast = query()
+  .merge(identity.node)
+  .onCreateSetProps(createPatch)
+  .onMatchSetProps(matchPatch)
+  .toAst();
+```
 
 ### Update
 
@@ -501,6 +539,24 @@ const Person = defineNodeFromJson(schemaDoc);
 const mapped = Person.from("p", formData);
 ```
 
+For merges, use `identity(...)` to map only the fields that identify the graph entity. Selected identity fields must be present even if the schema marks them as optional, and the rest of the input is ignored for the identity pattern:
+
+```ts
+const identity = Person.identity("p", formData, ["id"], {
+  paramPrefix: "person",
+});
+
+const ast = query()
+  .merge(identity.node)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MERGE (p:Person { id: $person_id })
+```
+
 For updates, use `patch(...)`. Patches validate only fields that are present, so `required` fields are not required for partial updates:
 
 ```ts
@@ -597,6 +653,27 @@ Cypher output:
 ```cypher
 MATCH (p:Person)-[r:WROTE]->(post:Post)
 SET r.featured = $r_featured
+```
+
+For relationship identity, use `Wrote.identity(...)` with `mergeEdge(...)`:
+
+```ts
+const identityEdge = Wrote.identity(person, post, {
+  role: "author",
+  createdAt: "2026-06-30",
+}, ["role"]);
+
+const ast = query()
+  .match(person, post)
+  .mergeEdge(identityEdge.edge)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (p:Person { id: $personId }), (post:Post { id: $postId })
+MERGE (p)-[:WROTE { role: $p_WROTE_post_role }]->(post)
 ```
 
 ## Bulk Operations
@@ -921,6 +998,8 @@ type Clause =
   | WhereClause
   | ReturnClause
   | SetPropertyClause
+  | OnCreateSetClause
+  | OnMatchSetClause
   | DeleteClause;
 ```
 
@@ -935,9 +1014,9 @@ console.log(JSON.stringify(ast, null, 2));
 - Gremlin compiler is not implemented yet.
 - Runtime schemas currently support `string`, `number`, and `boolean` fields.
 - Typed compile-time schema API is not implemented yet.
-- `set(...)` updates one property at a time; use `setProps(...)` for schema-generated multi-property patches.
+- `set(...)`, `onCreateSet(...)`, and `onMatchSet(...)` update one property at a time; use `setProps(...)`, `onCreateSetProps(...)`, or `onMatchSetProps(...)` for schema-generated multi-property patches.
 - The memory executor is intentionally small and not a full database; it is meant for tests, mocks, and semantic checks.
-- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, `CREATE`, `MERGE`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
+- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, `CREATE`, `MERGE`, merge-specific `ON CREATE SET`/`ON MATCH SET`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `SET`, `DELETE`, and `RETURN`.
 - Batch helpers are driver-neutral and sequential by default; there is no built-in Neo4j session/transaction adapter yet.
 
 ## Roadmap

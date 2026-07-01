@@ -134,6 +134,11 @@ export type SchemaMapOptions = {
 };
 
 /**
+ * Options for mapping identity fields through a runtime schema.
+ */
+export type SchemaIdentityOptions = SchemaMapOptions;
+
+/**
  * Result of mapping an input object to a node pattern and parameter bag.
  *
  * Pass `node` to the DSL and merge `params` into compiler/executor params.
@@ -203,6 +208,19 @@ export type RuntimeNodeSchema = {
    */
   from(alias: string, input: SchemaInput, options?: SchemaMapOptions): MappedNode;
   /**
+   * Maps selected input fields to identity properties for `merge(...)`.
+   *
+   * Selected identity fields must be present even if the schema marks them as optional.
+   * Other schema fields in the input are ignored.
+   *
+   * @param alias - Node alias to use in the graph query.
+   * @param input - Runtime object, such as form data.
+   * @param fields - Schema field names to use as identity properties.
+   * @param options - Optional mapping behavior.
+   * @returns A mapped node containing only identity properties and a parameter bag.
+   */
+  identity(alias: string, input: SchemaInput, fields: string[], options?: SchemaIdentityOptions): MappedNode;
+  /**
    * Maps an input object to property updates for an already-bound node alias.
    *
    * Required fields are not required for patches. Present fields are still
@@ -238,6 +256,26 @@ export type RuntimeEdgeSchema = {
    */
   from(from: NodeRef, to: NodeRef, input: SchemaInput, options?: SchemaMapOptions): MappedEdge;
   /**
+   * Maps selected input fields to identity properties for `mergeEdge(...)`.
+   *
+   * Selected identity fields must be present even if the schema marks them as optional.
+   * Other schema fields in the input are ignored.
+   *
+   * @param from - Source-side node reference.
+   * @param to - Target-side node reference.
+   * @param input - Runtime object, such as form data.
+   * @param fields - Schema field names to use as identity properties.
+   * @param options - Optional mapping behavior.
+   * @returns A mapped edge containing only identity properties and a parameter bag.
+   */
+  identity(
+    from: NodeRef,
+    to: NodeRef,
+    input: SchemaInput,
+    fields: string[],
+    options?: SchemaIdentityOptions,
+  ): MappedEdge;
+  /**
    * Maps an input object to property updates for an already-bound edge alias.
    *
    * Required fields are not required for patches. Present fields are still
@@ -268,6 +306,9 @@ export function defineNodeFromJson(schema: JsonNodeSchema): RuntimeNodeSchema {
     from(alias, input, options = {}) {
       return mapNodeInput(schema, alias, input, options);
     },
+    identity(alias, input, fields, options = {}) {
+      return mapNodeIdentity(schema, alias, input, fields, options);
+    },
     patch(alias, input, options = {}) {
       return mapPatchInput(schema, alias, input, options);
     },
@@ -291,9 +332,31 @@ export function defineEdgeFromJson(schema: JsonEdgeSchema): RuntimeEdgeSchema {
     from(from, to, input, options = {}) {
       return mapEdgeInput(schema, from, to, input, options);
     },
+    identity(from, to, input, fields, options = {}) {
+      return mapEdgeIdentity(schema, from, to, input, fields, options);
+    },
     patch(alias, input, options = {}) {
       return mapPatchInput(schema, alias, input, options);
     },
+  };
+}
+
+function mapNodeIdentity(
+  schema: JsonNodeSchema,
+  alias: string,
+  input: SchemaInput,
+  fields: string[],
+  options: SchemaIdentityOptions,
+): MappedNode {
+  const { params, props } = mapInputToProps(schema, alias, input, options, {
+    includeFields: fields,
+    requireIncludedFields: true,
+    requireRequiredFields: false,
+  });
+
+  return {
+    node: node(alias, schema.label).props(props),
+    params,
   };
 }
 
@@ -309,6 +372,27 @@ function mapNodeInput(
 
   return {
     node: node(alias, schema.label).props(props),
+    params,
+  };
+}
+
+function mapEdgeIdentity(
+  schema: JsonEdgeSchema,
+  from: NodeRef,
+  to: NodeRef,
+  input: SchemaInput,
+  fields: string[],
+  options: SchemaIdentityOptions,
+): MappedEdge {
+  const edgeAlias = `${from.alias}_${schema.label}_${to.alias}`;
+  const { params, props } = mapInputToProps(schema, edgeAlias, input, options, {
+    includeFields: fields,
+    requireIncludedFields: true,
+    requireRequiredFields: false,
+  });
+
+  return {
+    edge: edge(from, schema.label, to).props(props),
     params,
   };
 }
@@ -355,10 +439,17 @@ function mapInputToProps(
   defaultParamPrefix: string,
   input: SchemaInput,
   options: SchemaMapOptions,
-  mapOptions: { requireRequiredFields: boolean },
+  mapOptions: {
+    includeFields?: string[];
+    requireIncludedFields?: boolean;
+    requireRequiredFields: boolean;
+  },
 ): { params: Record<string, Primitive>; props: Record<string, ReturnType<typeof param>> } {
   const unknownFields = options.unknownFields ?? schema.options?.unknownFields ?? "error";
   const paramPrefix = options.paramPrefix ?? defaultParamPrefix;
+  const selectedFields = mapOptions.includeFields
+    ? new Set(mapOptions.includeFields)
+    : undefined;
   const schemaFields = new Set(Object.keys(schema.fields));
   const extraFields = Object.keys(input).filter((key) => !schemaFields.has(key));
 
@@ -369,11 +460,26 @@ function mapInputToProps(
   const params: Record<string, Primitive> = {};
   const props: Record<string, ReturnType<typeof param>> = {};
 
+  if (selectedFields) {
+    for (const key of selectedFields) {
+      if (!schemaFields.has(key)) {
+        throw new Error(`Unknown identity field for "${schema.label}": ${key}.`);
+      }
+    }
+  }
+
   for (const [key, field] of Object.entries(schema.fields)) {
+    if (selectedFields && !selectedFields.has(key)) {
+      continue;
+    }
+
     const rawValue = input[key];
 
     if (rawValue === undefined) {
-      if (field.required && mapOptions.requireRequiredFields) {
+      if (
+        (field.required && mapOptions.requireRequiredFields) ||
+        (selectedFields?.has(key) && mapOptions.requireIncludedFields)
+      ) {
         throw new Error(`Missing required field "${key}" for "${schema.label}".`);
       }
 

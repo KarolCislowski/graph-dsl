@@ -88,7 +88,10 @@ export type MemoryRow = Record<string, MemoryNode | MemoryEdge | MemoryRowObject
  */
 export type MemoryRowObject = Record<string, Primitive>;
 type BindingValue = MemoryNode | MemoryEdge | MemoryRowObject;
-type Binding = Record<string, BindingValue>;
+const mergeCreatedState = Symbol("mergeCreatedState");
+type Binding = Record<string, BindingValue> & {
+  [mergeCreatedState]?: boolean;
+};
 type MemoryContext = {
   params: Record<string, ParameterValue>;
 };
@@ -141,6 +144,20 @@ export function executeMemory(
         break;
       case "set":
         bindings = bindings.map((binding) => setProperty(binding, clause.alias, clause.key, clause.value, context));
+        break;
+      case "onCreateSet":
+        bindings = bindings.map((binding) =>
+          binding[mergeCreatedState] === true
+            ? setProperty(binding, clause.alias, clause.key, clause.value, context)
+            : binding,
+        );
+        break;
+      case "onMatchSet":
+        bindings = bindings.map((binding) =>
+          binding[mergeCreatedState] === false
+            ? setProperty(binding, clause.alias, clause.key, clause.value, context)
+            : binding,
+        );
         break;
       case "delete":
         deleteAliases(bindings, clause.aliases, graph);
@@ -240,10 +257,10 @@ function mergePattern(
   const matches = matchPattern(binding, pattern, graph, context);
 
   if (matches.length > 0) {
-    return matches[0] ?? binding;
+    return withMergeCreatedState(matches[0] ?? binding, false);
   }
 
-  return createPattern(binding, pattern, graph, context);
+  return withMergeCreatedState(createPattern(binding, pattern, graph, context), true);
 }
 
 function createPattern(
@@ -328,10 +345,10 @@ function mergeEdge(
   const matches = matchPattern(binding, pattern, graph, context);
 
   if (matches.length > 0) {
-    return matches[0] ?? binding;
+    return withMergeCreatedState(matches[0] ?? binding, false);
   }
 
-  return createEdge(binding, pattern, graph, context);
+  return withMergeCreatedState(createEdge(binding, pattern, graph, context), true);
 }
 
 function createEdge(
@@ -453,6 +470,13 @@ function bindEntity<T extends MemoryNode | MemoryEdge>(binding: Binding, alias: 
   }
 
   return [{ ...binding, [alias]: entity }];
+}
+
+function withMergeCreatedState(binding: Binding, created: boolean): Binding {
+  return {
+    ...binding,
+    [mergeCreatedState]: created,
+  };
 }
 
 function evaluatePredicate(

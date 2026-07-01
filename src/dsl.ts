@@ -336,6 +336,50 @@ export class QueryBuilder {
   }
 
   /**
+   * Adds a property update that runs only when the preceding merge creates data.
+   *
+   * @param property - Property expression to update.
+   * @param nextValue - New value expression or primitive literal.
+   * @returns A new query builder with the on-create set clause appended.
+   */
+  onCreateSet(property: ValueExpression, nextValue: ValueExpression | Primitive): QueryBuilder {
+    this.assertCanAddMergeSet("onCreateSet");
+
+    if (property.kind !== "property") {
+      throw new Error("onCreateSet() expects a property expression.");
+    }
+
+    return this.addClause({
+      kind: "onCreateSet",
+      alias: property.alias,
+      key: property.key,
+      value: isValueExpression(nextValue) ? nextValue : value(nextValue),
+    });
+  }
+
+  /**
+   * Adds a property update that runs only when the preceding merge matches data.
+   *
+   * @param property - Property expression to update.
+   * @param nextValue - New value expression or primitive literal.
+   * @returns A new query builder with the on-match set clause appended.
+   */
+  onMatchSet(property: ValueExpression, nextValue: ValueExpression | Primitive): QueryBuilder {
+    this.assertCanAddMergeSet("onMatchSet");
+
+    if (property.kind !== "property") {
+      throw new Error("onMatchSet() expects a property expression.");
+    }
+
+    return this.addClause({
+      kind: "onMatchSet",
+      alias: property.alias,
+      key: property.key,
+      value: isValueExpression(nextValue) ? nextValue : value(nextValue),
+    });
+  }
+
+  /**
    * Adds multiple property update clauses.
    *
    * This is useful with runtime schema patches, where a form object is mapped
@@ -347,6 +391,32 @@ export class QueryBuilder {
   setProps(patch: PropertySetCollection): QueryBuilder {
     return patch.sets.reduce(
       (builder, assignment) => builder.set(assignment.property, assignment.value),
+      this as QueryBuilder,
+    );
+  }
+
+  /**
+   * Adds multiple on-create property update clauses.
+   *
+   * @param patch - Collection of property assignments to apply.
+   * @returns A new query builder with all on-create set clauses appended.
+   */
+  onCreateSetProps(patch: PropertySetCollection): QueryBuilder {
+    return patch.sets.reduce(
+      (builder, assignment) => builder.onCreateSet(assignment.property, assignment.value),
+      this as QueryBuilder,
+    );
+  }
+
+  /**
+   * Adds multiple on-match property update clauses.
+   *
+   * @param patch - Collection of property assignments to apply.
+   * @returns A new query builder with all on-match set clauses appended.
+   */
+  onMatchSetProps(patch: PropertySetCollection): QueryBuilder {
+    return patch.sets.reduce(
+      (builder, assignment) => builder.onMatchSet(assignment.property, assignment.value),
       this as QueryBuilder,
     );
   }
@@ -400,6 +470,17 @@ export class QueryBuilder {
       kind: "query",
       clauses: [...this.ast.clauses, clause],
     }, this.scopeProperties);
+  }
+
+  private assertCanAddMergeSet(method: "onCreateSet" | "onMatchSet"): void {
+    const lastClause = this.ast.clauses.at(-1);
+
+    if (
+      !lastClause ||
+      !["merge", "mergeEdge", "onCreateSet", "onMatchSet"].includes(lastClause.kind)
+    ) {
+      throw new Error(`${method}() must be called immediately after merge(), mergeEdge(), or another merge set clause.`);
+    }
   }
 }
 

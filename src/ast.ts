@@ -236,6 +236,26 @@ export type SetPropertyClause = {
 };
 
 /**
+ * Clause setting one property only when the preceding merge created data.
+ */
+export type OnCreateSetClause = {
+  kind: "onCreateSet";
+  alias: string;
+  key: string;
+  value: ValueExpression;
+};
+
+/**
+ * Clause setting one property only when the preceding merge matched data.
+ */
+export type OnMatchSetClause = {
+  kind: "onMatchSet";
+  alias: string;
+  key: string;
+  value: ValueExpression;
+};
+
+/**
  * Clause deleting one or more bound aliases.
  */
 export type DeleteClause = {
@@ -256,6 +276,8 @@ export type Clause =
   | WhereClause
   | ReturnClause
   | SetPropertyClause
+  | OnCreateSetClause
+  | OnMatchSetClause
   | DeleteClause;
 
 /**

@@ -259,6 +259,94 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("compiles merge on-create and on-match sets with runtime schema identity helpers", () => {
+    const Person = defineNodeFromJson({
+      kind: "node",
+      label: "Person",
+      fields: {
+        id: { type: "string", required: true },
+        name: { type: "string" },
+        createdAt: { type: "string" },
+        updatedAt: { type: "string" },
+      },
+    });
+    const form = {
+      id: "person-1",
+      name: "Ada",
+      createdAt: "2026-07-01",
+      updatedAt: "2026-07-01",
+    };
+    const identity = Person.identity("p", form, ["id"]);
+    const createPatch = Person.patch("p", {
+      name: form.name,
+      createdAt: form.createdAt,
+    });
+    const matchPatch = Person.patch("p", {
+      name: form.name,
+      updatedAt: form.updatedAt,
+    });
+
+    expect(
+      compileCypher(
+        query()
+          .merge(identity.node)
+          .onCreateSetProps(createPatch)
+          .onMatchSetProps(matchPatch)
+          .toAst(),
+        {
+          params: {
+            ...identity.params,
+            ...createPatch.params,
+            ...matchPatch.params,
+          },
+        },
+      ),
+    ).toEqual({
+      query:
+        "MERGE (p:Person { id: $p_id })\nON CREATE SET p.name = $p_name\nON CREATE SET p.createdAt = $p_createdAt\nON MATCH SET p.name = $p_name\nON MATCH SET p.updatedAt = $p_updatedAt",
+      params: {
+        p_id: "person-1",
+        p_name: "Ada",
+        p_createdAt: "2026-07-01",
+        p_updatedAt: "2026-07-01",
+      },
+    });
+  });
+
+  it("executes merge on-create and on-match sets against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [],
+      edges: [],
+    };
+    const ast = query()
+      .merge(node("p", "Person").props({ id: param("id") }))
+      .onCreateSet(prop("p", "createdAt"), param("now"))
+      .onMatchSet(prop("p", "updatedAt"), param("now"))
+      .return(select("p", "createdAt", "createdAt"), select("p", "updatedAt", "updatedAt"))
+      .toAst();
+
+    expect(
+      executeMemory(ast, graph, {
+        params: { id: "person-1", now: "2026-07-01T09:00:00Z" },
+      }),
+    ).toEqual([{ createdAt: "2026-07-01T09:00:00Z", updatedAt: null }]);
+    expect(
+      executeMemory(ast, graph, {
+        params: { id: "person-1", now: "2026-07-01T10:00:00Z" },
+      }),
+    ).toEqual([{ createdAt: "2026-07-01T09:00:00Z", updatedAt: "2026-07-01T10:00:00Z" }]);
+    expect(graph.nodes).toHaveLength(1);
+  });
+
+  it("throws when on-create or on-match set is not attached to a merge", () => {
+    expect(() => query().onCreateSet(prop("p", "createdAt"), param("now"))).toThrow(
+      "onCreateSet() must be called immediately after merge(), mergeEdge(), or another merge set clause.",
+    );
+    expect(() => query().match(node("p", "Person")).onMatchSet(prop("p", "updatedAt"), param("now"))).toThrow(
+      "onMatchSet() must be called immediately after merge(), mergeEdge(), or another merge set clause.",
+    );
+  });
+
   it("applies scoped properties to every matched and created node", () => {
     const user = node("u", "User");
     const post = node("p", "Post").props({
