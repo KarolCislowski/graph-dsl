@@ -591,23 +591,22 @@ export class QueryBuilder {
   delete(...aliases: Array<NodeRef | EdgeRef | string>): QueryBuilder {
     return this.addClause({
       kind: "delete",
-      aliases: aliases.map((alias) => {
-        if (typeof alias === "string") {
-          return alias;
-        }
+      aliases: aliases.map((alias) => normalizeDeleteAlias(alias)),
+    });
+  }
 
-        if (alias instanceof EdgeRef) {
-          const edgeAlias = alias.alias;
-
-          if (!edgeAlias) {
-            throw new Error("delete() expects an aliased edge, for example edge(a, \"KNOWS\", b).as(\"r\").");
-          }
-
-          return edgeAlias;
-        }
-
-        return alias.alias;
-      }),
+  /**
+   * Adds a detach-delete clause for bound aliases.
+   *
+   * Use this when deleting nodes that may still have relationships.
+   *
+   * @param aliases - Node references, aliased edge references, or alias strings to delete.
+   * @returns A new query builder with the detach-delete clause appended.
+   */
+  detachDelete(...aliases: Array<NodeRef | EdgeRef | string>): QueryBuilder {
+    return this.addClause({
+      kind: "detachDelete",
+      aliases: aliases.map((alias) => normalizeDeleteAlias(alias)),
     });
   }
 
@@ -643,6 +642,24 @@ export class QueryBuilder {
       throw new Error(`${method}() must be called immediately after merge(), mergeEdge(), or another merge set clause.`);
     }
   }
+}
+
+function normalizeDeleteAlias(alias: NodeRef | EdgeRef | string): string {
+  if (typeof alias === "string") {
+    return alias;
+  }
+
+  if (alias instanceof EdgeRef) {
+    const edgeAlias = alias.alias;
+
+    if (!edgeAlias) {
+      throw new Error("delete() expects an aliased edge, for example edge(a, \"KNOWS\", b).as(\"r\").");
+    }
+
+    return edgeAlias;
+  }
+
+  return alias.alias;
 }
 
 /**

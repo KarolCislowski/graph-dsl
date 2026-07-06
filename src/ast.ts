@@ -317,6 +317,14 @@ export type DeleteClause = {
 };
 
 /**
+ * Clause deleting one or more bound aliases together with their relationships.
+ */
+export type DetachDeleteClause = {
+  kind: "detachDelete";
+  aliases: string[];
+};
+
+/**
  * All supported query clauses in execution order.
  */
 export type Clause =
@@ -331,7 +339,8 @@ export type Clause =
   | SetPropertyClause
   | OnCreateSetClause
   | OnMatchSetClause
-  | DeleteClause;
+  | DeleteClause
+  | DetachDeleteClause;
 
 /**
  * Root AST emitted by the DSL and consumed by compilers/executors.

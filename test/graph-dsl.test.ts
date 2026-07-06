@@ -139,6 +139,22 @@ describe("graph-dsl", () => {
         email: "ada@example.com",
       },
     });
+
+    expect(
+      compileCypher(
+        query()
+          .match(node("u", "User"))
+          .where(eq(prop("u", "email"), param("email")))
+          .detachDelete("u")
+          .toAst(),
+        { params: { email: "ada@example.com" } },
+      ),
+    ).toEqual({
+      query: "MATCH (u:User)\nWHERE u.email = $email\nDETACH DELETE u",
+      params: {
+        email: "ada@example.com",
+      },
+    });
   });
 
   it("executes create, update, and delete operations against a memory graph", () => {
@@ -193,13 +209,49 @@ describe("graph-dsl", () => {
         query()
           .match(matchedUser)
           .where(eq(matchedUser.prop("email"), param("email")))
-          .delete(matchedUser)
+          .detachDelete(matchedUser)
           .toAst(),
         graph,
         { params: { email: "ada@example.com" } },
       ),
     ).toHaveLength(1);
     expect(graph.nodes).toHaveLength(0);
+  });
+
+  it("distinguishes delete from detachDelete when relationships exist", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { email: "ada@example.com" } },
+        { id: "post-1", labels: ["Post"], properties: { title: "Graph DSLs" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "WROTE", from: "user-1", to: "post-1", properties: {} },
+      ],
+    };
+
+    const user = node("u", "User");
+
+    expect(() =>
+      executeMemory(
+        query().match(user).where(eq(user.prop("email"), param("email"))).delete(user).toAst(),
+        graph,
+        { params: { email: "ada@example.com" } },
+      ),
+    ).toThrow("Use detachDelete(...) instead.");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .where(eq(user.prop("email"), param("email")))
+          .detachDelete(user)
+          .toAst(),
+        graph,
+        { params: { email: "ada@example.com" } },
+      ),
+    ).toHaveLength(1);
+    expect(graph.nodes).toHaveLength(1);
+    expect(graph.edges).toHaveLength(0);
   });
 
   it("compiles merge operations to Cypher", () => {

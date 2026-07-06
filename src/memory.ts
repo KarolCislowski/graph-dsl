@@ -187,7 +187,10 @@ export function executeMemory(
         );
         break;
       case "delete":
-        deleteAliases(bindings, clause.aliases, graph);
+        deleteAliases(bindings, clause.aliases, graph, { detach: false });
+        break;
+      case "detachDelete":
+        deleteAliases(bindings, clause.aliases, graph, { detach: true });
         break;
       case "return":
         selections = clause.selections;
@@ -650,7 +653,12 @@ function setProperty(
   return binding;
 }
 
-function deleteAliases(bindings: Binding[], aliases: string[], graph: MemoryGraph): void {
+function deleteAliases(
+  bindings: Binding[],
+  aliases: string[],
+  graph: MemoryGraph,
+  options: { detach: boolean },
+): void {
   const ids = new Set(
     bindings.flatMap((binding) =>
       aliases.flatMap((alias) => {
@@ -662,9 +670,17 @@ function deleteAliases(bindings: Binding[], aliases: string[], graph: MemoryGrap
 
   const nodeIds = new Set(graph.nodes.filter((node) => ids.has(node.id)).map((node) => node.id));
 
-  graph.edges = graph.edges.filter(
-    (edge) => !ids.has(edge.id) && !nodeIds.has(edge.from) && !nodeIds.has(edge.to),
-  );
+  if (!options.detach) {
+    const connectedEdge = graph.edges.find((edge) => nodeIds.has(edge.from) || nodeIds.has(edge.to));
+
+    if (connectedEdge) {
+      throw new Error("Cannot delete a node that still has relationships. Use detachDelete(...) instead.");
+    }
+  }
+
+  graph.edges = options.detach
+    ? graph.edges.filter((edge) => !ids.has(edge.id) && !nodeIds.has(edge.from) && !nodeIds.has(edge.to))
+    : graph.edges.filter((edge) => !ids.has(edge.id));
   graph.nodes = graph.nodes.filter((node) => !ids.has(node.id));
 }
 

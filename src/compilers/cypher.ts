@@ -90,6 +90,8 @@ function compileClause(clause: Clause, context: CypherContext): string {
       )}`;
     case "delete":
       return `DELETE ${clause.aliases.map(escapeIdentifier).join(", ")}`;
+    case "detachDelete":
+      return `DETACH DELETE ${clause.aliases.map(escapeIdentifier).join(", ")}`;
   }
 }
 

@@ -552,6 +552,26 @@ WHERE u.email = $email
 DELETE u
 ```
 
+### Detach Delete
+
+Use this when the node may still have relationships.
+
+```ts
+const ast = query()
+  .match(node("u", "User"))
+  .where(eq(prop("u", "email"), param("email")))
+  .detachDelete("u")
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+WHERE u.email = $email
+DETACH DELETE u
+```
+
 ## Runtime Schemas
 
 You can describe node and edge properties with a serializable JSON schema. This is useful when schemas are stored outside the codebase, for example in MongoDB.
