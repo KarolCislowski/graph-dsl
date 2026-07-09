@@ -7,6 +7,8 @@ Typed graph query DSL for JavaScript/TypeScript.
 ```txt
 DSL -> AST -> Cypher Compiler -> Neo4j
          |
+         +-> Ladybug Cypher Compiler -> LadybugDB
+         |
          +-> Gremlin Compiler -> JanusGraph
          |
          +-> Memory Executor -> Mock database/tests
@@ -28,6 +30,7 @@ The current package is an MVP. It already supports a neutral AST, a fluent DSL, 
 - [Predicates](#predicates)
 - [Returning Data](#returning-data)
 - [Cypher Compiler](#cypher-compiler)
+- [Ladybug Compiler](#ladybug-compiler)
 - [Memory Executor](#memory-executor)
 - [AST Shape](#ast-shape)
 - [Current Limitations](#current-limitations)
@@ -1117,6 +1120,63 @@ type CompilerOutput = {
 };
 ```
 
+## Ladybug Compiler
+
+`compileLadybugCypher(...)` emits the Ladybug-compatible subset of Cypher supported by this MVP. Ladybug is close to openCypher, so the emitted query text is usually the same as `compileCypher(...)`; the important difference is that the Ladybug compiler validates the AST against Ladybug's structured property graph model before emitting a query.
+
+```ts
+import { compileLadybugCypher, node, param, query, select } from "graph-dsl";
+
+const user = node("u", "User").props({
+  id: param("userId"),
+});
+
+const result = compileLadybugCypher(
+  query()
+    .match(user)
+    .return(select(user, "id", "userId"))
+    .toAst(),
+  {
+    params: {
+      userId: "user-1",
+    },
+    terminateStatement: true,
+  },
+);
+
+console.log(result.query);
+// MATCH (u:User { id: $userId })
+// RETURN u.id AS userId;
+```
+
+Use `terminateStatement: true` when you want a trailing semicolon for Ladybug CLI-style execution. Driver APIs commonly accept statements without the semicolon, so the default is `false`.
+
+### Ladybug vs openCypher
+
+Ladybug follows openCypher where possible, but it is not a drop-in openCypher runtime. The most important differences for this DSL are:
+
+- Ladybug uses a structured property graph model: node and relationship tables must usually be declared before inserting data.
+- A Ladybug node or relationship belongs to one table/label; Neo4j-style multi-label nodes are not part of the normal structured model.
+- Node tables have primary keys, and relationship tables declare their allowed `FROM`/`TO` node table pairs.
+- Variable-length relationships use walk semantics by default, so repeated relationships are allowed unless the query checks otherwise.
+- Variable-length relationships need an upper bound for termination; if omitted, Ladybug applies its own default bound.
+- Some Neo4j/openCypher clauses and functions are renamed or unsupported, such as `LOAD CSV` becoming Ladybug's broader `LOAD FROM`, no `FOREACH`, no `USE`, and `label()` instead of `labels()`.
+- Ladybug's type system is closer to Postgres than Neo4j; list and map values are more strongly typed.
+- Bulk loading is usually better expressed with Ladybug's native `COPY FROM`/scan flow than many small `CREATE` statements.
+
+### Ladybug MVP Limitations
+
+The Ladybug compiler is intentionally conservative. It validates the subset below and throws early for patterns that would be ambiguous or semantically different in Ladybug.
+
+- Schemas are not generated yet. Define Ladybug node and relationship tables separately with `CREATE NODE TABLE` and `CREATE REL TABLE`.
+- Node patterns may use at most one label. Ladybug's structured model treats labels as tables, while the generic DSL still allows Neo4j-style multi-label nodes.
+- `CREATE` and `MERGE` node patterns must have an explicit node label. Relationship patterns must have an explicit relationship label.
+- Variable-length traversals must be bounded with `.hops(min, max)`. Unbounded traversals such as `.hops(1)` are rejected because Ladybug uses walk semantics and requires an upper bound for predictable termination.
+- Path semantics differ from Neo4j: Neo4j `MATCH` uses trail semantics for relationships, while Ladybug uses walk semantics by default. The compiler does not rewrite queries to force Neo4j-equivalent trail behavior.
+- DDL, primary keys, relationship multiplicities, indexes, and constraints are outside this compiler. They should be managed by migration code or a future schema compiler.
+- `REMOVE`, `FOREACH`, `CALL { ... }` subqueries, `USE`, `LOAD CSV`, and Ladybug-specific `LOAD FROM`/`COPY FROM` are not represented in the current AST and are not emitted.
+- Bulk writes can use the existing `UNWIND` DSL shape, but large Ladybug imports should prefer Ladybug's native `COPY FROM` flow outside this MVP compiler.
+
 ## Memory Executor
 
 The memory executor runs the same AST against an in-memory graph. It is useful for tests, mocks, and checking DSL semantics without a database.
@@ -1217,6 +1277,7 @@ console.log(JSON.stringify(ast, null, 2));
 - Typed compile-time schema API is not implemented yet.
 - Path/traversal patterns are read-only and can be used with `match(...)`; `create(...)` and `merge(...)` reject them.
 - The memory executor requires `maxHops` for traversal patterns. Cypher compilation can emit unbounded traversals such as `*1..`.
+- Ladybug Cypher compilation requires bounded traversal patterns and rejects multi-label node patterns.
 - `set(...)`, `onCreateSet(...)`, and `onMatchSet(...)` update one property at a time; use `setProps(...)`, `onCreateSetProps(...)`, or `onMatchSetProps(...)` for schema-generated multi-property patches.
 - The memory executor is intentionally small and not a full database; it is meant for tests, mocks, and semantic checks.
 - Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, variable-length path traversal, `CREATE`, `MERGE`, merge-specific `ON CREATE SET`/`ON MATCH SET`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `RETURN` with aggregate projections, `SET`, and `DELETE`.

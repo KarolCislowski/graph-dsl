@@ -3,6 +3,7 @@ import {
   avg,
   collect,
   compileCypher,
+  compileLadybugCypher,
   count,
   countAll,
   defineEdgeFromJson,
@@ -54,6 +55,54 @@ describe("graph-dsl", () => {
         email: "ada@example.com",
       },
     });
+  });
+
+  it("compiles the Ladybug Cypher MVP subset", () => {
+    const user = node("u", "User").props({ id: param("userId") });
+    const post = node("p", "Post").props({ id: param("postId") });
+
+    expect(
+      compileLadybugCypher(
+        query()
+          .match(user, post)
+          .mergeEdge(edge(user, "WROTE", post).props({ role: "author" }))
+          .return(select(user, "id", "userId"))
+          .toAst(),
+        {
+          params: {
+            userId: "user-1",
+            postId: "post-1",
+          },
+          terminateStatement: true,
+        },
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User { id: $userId }), (p:Post { id: $postId })\nMERGE (u)-[:WROTE { role: $p0 }]->(p)\nRETURN u.id AS userId;",
+      params: {
+        userId: "user-1",
+        postId: "post-1",
+        p0: "author",
+      },
+    });
+  });
+
+  it("rejects Ladybug-incompatible MVP patterns", () => {
+    expect(() =>
+      compileLadybugCypher(query().match(node("u", "User", "Author")).toAst()),
+    ).toThrow('Ladybug compiler MVP supports one node label per pattern; node "u" has 2.');
+
+    expect(() => compileLadybugCypher(query().create(node("u")).toAst())).toThrow(
+      "Ladybug compiler MVP requires an explicit node label for u in CREATE and MERGE patterns.",
+    );
+
+    expect(() =>
+      compileLadybugCypher(
+        query()
+          .match(traverse(node("a", "User"), "FOLLOWS", node("b", "User")))
+          .toAst(),
+      ),
+    ).toThrow('Ladybug compiler MVP requires bounded traversal patterns; "FOLLOWS" is missing maxHops.');
   });
 
   it("executes the same AST against a memory graph", () => {
