@@ -297,7 +297,8 @@ function compileProperties(
 function compilePredicate(predicate: PredicateExpression, context: CypherContext): string {
   switch (predicate.kind) {
     case "binary": {
-      const operator = predicate.operator === "contains" ? "CONTAINS" : predicate.operator;
+      const operator =
+        predicate.operator === "contains" ? "CONTAINS" : predicate.operator === "!=" ? "<>" : predicate.operator;
       return `${compileValue(predicate.left, context)} ${operator} ${compileValue(predicate.right, context)}`;
     }
     case "logical":

@@ -1022,7 +1022,7 @@ Comparison helpers:
 | Helper | Meaning | Cypher output example |
 | --- | --- | --- |
 | `eq(left, right)` | Checks equality. | `u.email = $email` |
-| `neq(left, right)` | Checks inequality. | `u.status != $p0` |
+| `neq(left, right)` | Checks inequality. | `u.status <> $p0` |
 | `gt(left, right)` | Checks that `left` is greater than `right`. | `u.age > $p0` |
 | `gte(left, right)` | Checks that `left` is greater than or equal to `right`. | `u.age >= $p0` |
 | `lt(left, right)` | Checks that `left` is less than `right`. | `u.age < $p0` |

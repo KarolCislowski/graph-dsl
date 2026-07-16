@@ -14,6 +14,7 @@ import {
   max,
   min,
   node,
+  neq,
   param,
   path,
   prop,
@@ -53,6 +54,23 @@ describe("graph-dsl", () => {
         "MATCH (u:User)-[:WROTE]->(p:Post)\nWHERE u.email = $email\nRETURN p, u.email AS authorEmail",
       params: {
         email: "ada@example.com",
+      },
+    });
+  });
+
+  it("compiles inequality predicates using Neo4j Cypher syntax", () => {
+    const user = node("u", "User");
+
+    const ast = query()
+      .match(user)
+      .where(neq(prop(user, "status"), "inactive"))
+      .return(user)
+      .toAst();
+
+    expect(compileCypher(ast)).toEqual({
+      query: "MATCH (u:User)\nWHERE u.status <> $p0\nRETURN u",
+      params: {
+        p0: "inactive",
       },
     });
   });
