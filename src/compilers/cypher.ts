@@ -3,6 +3,7 @@ import type {
   Clause,
   CompilerOutput,
   EdgePattern,
+  FunctionArgumentExpression,
   NodePattern,
   ParameterValue,
   PathPattern,
@@ -343,7 +344,19 @@ function compileReturnSelection(selection: ReturnSelection, context: CypherConte
       )})`;
       return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
     }
+    case "expression":
+      return `${compileValue(selection.expression, context)} AS ${escapeIdentifier(selection.as)}`;
+    case "map":
+      return `${compileMapFields(selection.fields, context)} AS ${escapeIdentifier(selection.as)}`;
   }
+}
+
+function compileMapFields(fields: Record<string, ValueExpression>, context: CypherContext): string {
+  const body = Object.entries(fields)
+    .map(([key, expression]) => `${escapeIdentifier(key)}: ${compileValue(expression, context)}`)
+    .join(", ");
+
+  return `{ ${body} }`;
 }
 
 function compileAggregateTarget(target: AggregateTargetExpression, context: CypherContext): string {
@@ -370,7 +383,17 @@ function compileValue(expression: ValueExpression, context: CypherContext): stri
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
     case "rowProperty":
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
+    case "function":
+      return `${expression.name}(${expression.args.map((arg) => compileFunctionArgument(arg, context)).join(", ")})`;
   }
+}
+
+function compileFunctionArgument(argument: FunctionArgumentExpression, context: CypherContext): string {
+  if (argument.kind === "aliasRef") {
+    return escapeIdentifier(argument.alias);
+  }
+
+  return compileValue(argument, context);
 }
 
 function escapeIdentifier(identifier: string): string {

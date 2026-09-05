@@ -9,8 +9,11 @@ import {
   defineEdgeFromJson,
   defineNodeFromJson,
   edge,
+  elementId,
   eq,
+  expr,
   executeMemory,
+  map,
   max,
   min,
   node,
@@ -152,6 +155,84 @@ describe("graph-dsl", () => {
       params: {
         offset: 20,
       },
+    });
+  });
+
+  it("compiles expression and map return projections to Cypher", () => {
+    const user = node("u", "User");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .return(
+            expr(elementId(user), "id"),
+            map("user", {
+              id: elementId(user),
+              email: user.prop("email"),
+              source: "neo4j",
+            }),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)\nRETURN elementId(u) AS id, { id: elementId(u), email: u.email, source: $p0 } AS user",
+      params: {
+        p0: "neo4j",
+      },
+    });
+  });
+
+  it("executes expression and map return projections against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["User"], properties: { email: "ada@example.com" } },
+      ],
+      edges: [],
+    };
+    const user = node("u", "User");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .return(
+            expr(elementId(user), "id"),
+            map("user", {
+              id: elementId(user),
+              email: user.prop("email"),
+              active: true,
+            }),
+          )
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        id: "node-1",
+        user: {
+          id: "node-1",
+          email: "ada@example.com",
+          active: true,
+        },
+      },
+    ]);
+  });
+
+  it("supports function expressions in distinct aggregates", () => {
+    const user = node("u", "User");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .return(count(elementId(user), "users", { distinct: true }))
+          .toAst(),
+      ),
+    ).toEqual({
+      query: "MATCH (u:User)\nRETURN count(DISTINCT elementId(u)) AS users",
+      params: {},
     });
   });
 

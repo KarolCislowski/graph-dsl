@@ -26,7 +26,8 @@ export type ValueExpression =
   | PrimitiveExpression
   | ParameterExpression
   | PropertyExpression
-  | RowPropertyExpression;
+  | RowPropertyExpression
+  | FunctionExpression;
 
 /**
  * Literal value expression. Compilers may parameterize it for the target backend.
@@ -63,6 +64,33 @@ export type RowPropertyExpression = {
   alias: string;
   key: string;
 };
+
+/**
+ * Reference to a bound node, edge, path, or traversal alias.
+ */
+export type AliasExpression = {
+  kind: "aliasRef";
+  alias: string;
+};
+
+/**
+ * Arguments accepted by built-in function expressions.
+ */
+export type FunctionArgumentExpression = AliasExpression | ValueExpression;
+
+/**
+ * Built-in scalar function expression.
+ */
+export type FunctionExpression = {
+  kind: "function";
+  name: FunctionName;
+  args: FunctionArgumentExpression[];
+};
+
+/**
+ * Supported built-in function expressions.
+ */
+export type FunctionName = "elementId";
 
 /**
  * Boolean expression used by `where(...)`.
@@ -261,6 +289,16 @@ export type ReturnSelection =
       target: AggregateTargetExpression;
       distinct: boolean;
       as?: string;
+    }
+  | {
+      kind: "expression";
+      expression: ValueExpression;
+      as: string;
+    }
+  | {
+      kind: "map";
+      fields: Record<string, ValueExpression>;
+      as: string;
     };
 
 /**
@@ -275,10 +313,7 @@ export type AggregateTargetExpression =
   | {
       kind: "all";
     }
-  | {
-      kind: "aliasRef";
-      alias: string;
-    }
+  | AliasExpression
   | ValueExpression;
 
 /**

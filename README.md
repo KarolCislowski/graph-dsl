@@ -1130,6 +1130,48 @@ query()
   .return(select("u", "email", "email"));
 ```
 
+Return a scalar expression with an alias:
+
+```ts
+const user = node("u", "User");
+
+query()
+  .match(user)
+  .return(expr(elementId(user), "id"));
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+RETURN elementId(u) AS id
+```
+
+Return a map/object projection:
+
+```ts
+const user = node("u", "User");
+
+query()
+  .match(user)
+  .return(
+    map("user", {
+      id: elementId(user),
+      email: user.prop("email"),
+      source: "neo4j",
+    }),
+  );
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+RETURN { id: elementId(u), email: u.email, source: $p0 } AS user
+```
+
+`elementId(...)` accepts a node reference, an aliased edge reference, or an alias string. Edge references must be aliased before they can be passed to `elementId(...)`.
+
 ## Cypher Compiler
 
 ```ts

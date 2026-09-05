@@ -1,6 +1,7 @@
 import type {
   AggregateFunction,
   AggregateTargetExpression,
+  AliasExpression,
   BinaryOperator,
   Direction,
   EdgePattern,
@@ -29,6 +30,7 @@ export type AggregateOptions = {
 };
 
 type AggregateTargetInput = NodeRef | EdgeRef | PathRef | string | ValueExpression;
+type AliasTargetInput = NodeRef | EdgeRef | string;
 type ResultCountInput = number | ParameterExpression;
 
 /**
@@ -859,6 +861,36 @@ export function select(ref: NodeRef | string, key: string, as?: string): ReturnS
 }
 
 /**
+ * Creates a return selection for an arbitrary value expression.
+ *
+ * @param expression - Expression to project.
+ * @param as - Projected field alias.
+ * @returns A return selection.
+ */
+export function expr(expression: ValueExpression, as: string): ReturnSelection {
+  return {
+    kind: "expression",
+    expression,
+    as,
+  };
+}
+
+/**
+ * Creates a return selection for a Cypher map/object projection.
+ *
+ * @param as - Projected field alias.
+ * @param fields - Map fields keyed by output property name.
+ * @returns A return selection.
+ */
+export function map(as: string, fields: Record<string, ValueExpression | Primitive>): ReturnSelection {
+  return {
+    kind: "map",
+    fields: normalizeProperties(fields),
+    as,
+  };
+}
+
+/**
  * Creates an explicit order expression for `orderBy(...)`.
  *
  * @param expression - Value expression to sort by.
@@ -869,6 +901,20 @@ export function order(expression: ValueExpression, direction: "asc" | "desc" = "
   return {
     expression,
     direction,
+  };
+}
+
+/**
+ * Creates an `elementId(...)` expression for a bound node or edge.
+ *
+ * @param target - Alias or reference to pass to `elementId(...)`.
+ * @returns A scalar function expression.
+ */
+export function elementId(target: AliasTargetInput): ValueExpression {
+  return {
+    kind: "function",
+    name: "elementId",
+    args: [aliasTargetToExpression(target)],
   };
 }
 
@@ -1248,6 +1294,26 @@ function targetToAggregateExpression(target: AggregateTargetInput | undefined): 
   return target;
 }
 
+function aliasTargetToExpression(target: AliasTargetInput): AliasExpression {
+  if (typeof target === "string") {
+    return { kind: "aliasRef", alias: target };
+  }
+
+  if (target instanceof NodeRef) {
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  if (target instanceof EdgeRef) {
+    if (!target.alias) {
+      throw new Error("Edge function targets must be aliased, for example elementId(edge(a, \"KNOWS\", b).as(\"r\")).");
+    }
+
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  throw new Error("Unsupported alias target.");
+}
+
 function validateHops(minHops: number, maxHops: number | undefined): void {
   if (!Number.isInteger(minHops) || minHops < 0) {
     throw new Error("Traversal minHops must be a non-negative integer.");
@@ -1294,6 +1360,14 @@ function selectionToAst(selection: NodeRef | PathRef | string | ReturnSelection 
     return selection;
   }
 
+  if (selection.kind === "expression") {
+    return selection;
+  }
+
+  if (selection.kind === "map") {
+    return selection;
+  }
+
   throw new Error(`Cannot return expression kind "${selection.kind}" yet.`);
 }
 
@@ -1305,6 +1379,7 @@ function isValueExpression(value: unknown): value is ValueExpression {
     (value.kind === "primitive" ||
       value.kind === "parameter" ||
       value.kind === "property" ||
-      value.kind === "rowProperty")
+      value.kind === "rowProperty" ||
+      value.kind === "function")
   );
 }

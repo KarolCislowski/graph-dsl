@@ -2,6 +2,7 @@ import type {
   AggregateFunction,
   AggregateTargetExpression,
   EdgePattern,
+  FunctionArgumentExpression,
   NodePattern,
   ParameterValue,
   PathPattern,
@@ -215,10 +216,10 @@ export function executeMemory(
   }
 
   if (selections.some((selection) => selection.kind === "aggregate")) {
-    return projectAggregatedRows(bindings, selections);
+    return projectAggregatedRows(bindings, selections, context);
   }
 
-  return bindings.map((binding) => projectRow(binding, selections));
+  return bindings.map((binding) => projectRow(binding, selections, context));
 }
 
 function unwindBindings(
@@ -831,7 +832,39 @@ function evaluateValue(
 
       return row[expression.key] ?? null;
     }
+    case "function":
+      return evaluateFunction(expression.name, expression.args, binding, context);
   }
+}
+
+function evaluateFunction(
+  name: "elementId",
+  args: FunctionArgumentExpression[],
+  binding: Binding,
+  context: MemoryContext,
+): Primitive {
+  switch (name) {
+    case "elementId": {
+      const target = evaluateFunctionArgument(args[0], binding, context);
+      return isNode(target) || isEdge(target) ? target.id : null;
+    }
+  }
+}
+
+function evaluateFunctionArgument(
+  argument: FunctionArgumentExpression | undefined,
+  binding: Binding,
+  context: MemoryContext,
+): PathBindingValue | Primitive {
+  if (!argument) {
+    return null;
+  }
+
+  if (argument.kind === "aliasRef") {
+    return binding[argument.alias] ?? null;
+  }
+
+  return evaluateValue(argument, binding, context);
 }
 
 function evaluateList(
@@ -927,7 +960,7 @@ function nextId(prefix: "node" | "edge", entities: Array<MemoryNode | MemoryEdge
   return `${prefix}-${index}`;
 }
 
-function projectRow(binding: Binding, selections: ReturnSelection[]): MemoryRow {
+function projectRow(binding: Binding, selections: ReturnSelection[], context: MemoryContext): MemoryRow {
   return Object.fromEntries(
     selections.map((selection) => {
       if (selection.kind === "alias") {
@@ -936,6 +969,22 @@ function projectRow(binding: Binding, selections: ReturnSelection[]): MemoryRow 
 
       if (selection.kind === "aggregate") {
         return [aggregateSelectionKey(selection), null];
+      }
+
+      if (selection.kind === "expression") {
+        return [selection.as, evaluateValue(selection.expression, binding, context)];
+      }
+
+      if (selection.kind === "map") {
+        return [
+          selection.as,
+          Object.fromEntries(
+            Object.entries(selection.fields).map(([key, expression]) => [
+              key,
+              evaluateValue(expression, binding, context),
+            ]),
+          ),
+        ];
       }
 
       const entity = binding[selection.alias];
@@ -947,13 +996,17 @@ function projectRow(binding: Binding, selections: ReturnSelection[]): MemoryRow 
   );
 }
 
-function projectAggregatedRows(bindings: Binding[], selections: ReturnSelection[]): MemoryRow[] {
+function projectAggregatedRows(
+  bindings: Binding[],
+  selections: ReturnSelection[],
+  context: MemoryContext,
+): MemoryRow[] {
   const groupSelections = selections.filter((selection) => selection.kind !== "aggregate");
   const aggregateSelections = selections.filter((selection) => selection.kind === "aggregate");
   const groups = new Map<string, { values: MemoryRow; bindings: Binding[] }>();
 
   for (const binding of bindings) {
-    const values = projectRow(binding, groupSelections);
+    const values = projectRow(binding, groupSelections, context);
     const key = stableGroupKey(values);
     const group = groups.get(key);
 
@@ -973,7 +1026,7 @@ function projectAggregatedRows(bindings: Binding[], selections: ReturnSelection[
     ...Object.fromEntries(
       aggregateSelections.map((selection) => [
         aggregateSelectionKey(selection),
-        evaluateAggregate(selection.fn, selection.target, selection.distinct, group.bindings),
+        evaluateAggregate(selection.fn, selection.target, selection.distinct, group.bindings, context),
       ]),
     ),
   }));
@@ -984,8 +1037,9 @@ function evaluateAggregate(
   target: AggregateTargetExpression,
   distinct: boolean,
   bindings: Binding[],
+  context: MemoryContext,
 ): MemoryValue {
-  const values = aggregateValues(target, bindings, fn === "count");
+  const values = aggregateValues(target, bindings, fn === "count", context);
   const aggregateInput = distinct ? distinctValues(values) : values;
 
   switch (fn) {
@@ -1010,23 +1064,28 @@ function aggregateValues(
   target: AggregateTargetExpression,
   bindings: Binding[],
   keepNulls: boolean,
+  context: MemoryContext,
 ): MemoryValue[] {
   if (target.kind === "all") {
     return bindings.map((_, index) => index);
   }
 
-  const values = bindings.map((binding) => evaluateAggregateTarget(target, binding));
+  const values = bindings.map((binding) => evaluateAggregateTarget(target, binding, context));
   return keepNulls ? values : values.filter((value) => value !== null);
 }
 
-function evaluateAggregateTarget(target: AggregateTargetExpression, binding: Binding): MemoryValue {
+function evaluateAggregateTarget(
+  target: AggregateTargetExpression,
+  binding: Binding,
+  context: MemoryContext,
+): MemoryValue {
   switch (target.kind) {
     case "all":
       return null;
     case "aliasRef":
       return binding[target.alias] ?? null;
     default:
-      return evaluateValue(target, binding, { params: {} });
+      return evaluateValue(target, binding, context);
   }
 }
 
@@ -1053,6 +1112,8 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return `$${target.name}`;
     case "primitive":
       return String(target.value);
+    case "function":
+      return `${target.name}(...)`;
   }
 }
 
@@ -1135,16 +1196,16 @@ function isRowObject(value: unknown): value is MemoryRowObject {
   );
 }
 
-function isNode(entity: PathBindingValue): entity is MemoryNode {
-  return "labels" in entity;
+function isNode(entity: unknown): entity is MemoryNode {
+  return typeof entity === "object" && entity !== null && "labels" in entity;
 }
 
-function isEdge(entity: PathBindingValue): entity is MemoryEdge {
-  return "from" in entity && "to" in entity;
+function isEdge(entity: unknown): entity is MemoryEdge {
+  return typeof entity === "object" && entity !== null && "from" in entity && "to" in entity;
 }
 
-function isPath(entity: PathBindingValue): entity is MemoryPath {
-  return "nodes" in entity && "edges" in entity;
+function isPath(entity: unknown): entity is MemoryPath {
+  return typeof entity === "object" && entity !== null && "nodes" in entity && "edges" in entity;
 }
 
 function isEntity(entity: PathBindingValue): entity is MemoryNode | MemoryEdge {
