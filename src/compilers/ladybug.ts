@@ -78,6 +78,7 @@ function validateClause(clause: Clause): void {
       return;
     case "unwind":
     case "where":
+    case "with":
     case "return":
     case "orderBy":
     case "skip":

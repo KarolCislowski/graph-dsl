@@ -74,6 +74,8 @@ function compileClause(clause: Clause, context: CypherContext): string {
       return `MERGE ${clause.edges.map((edge) => compileBoundEdgePath(edge, context)).join(", ")}`;
     case "where":
       return `WHERE ${compilePredicate(clause.predicate, context)}`;
+    case "with":
+      return `WITH ${clause.selections.map((selection) => compileReturnSelection(selection, context)).join(", ")}`;
     case "return":
       return `RETURN ${clause.selections.map((selection) => compileReturnSelection(selection, context)).join(", ")}`;
     case "orderBy":
@@ -383,6 +385,8 @@ function compileValue(expression: ValueExpression, context: CypherContext): stri
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
     case "rowProperty":
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
+    case "variable":
+      return escapeIdentifier(expression.name);
     case "function":
       return `${expression.name}(${expression.args.map((arg) => compileFunctionArgument(arg, context)).join(", ")})`;
   }

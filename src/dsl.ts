@@ -500,6 +500,19 @@ export class QueryBuilder {
   }
 
   /**
+   * Adds a with clause, projecting values into the next pipeline stage.
+   *
+   * @param selections - Aliases, properties, aggregates, maps, or expressions to keep.
+   * @returns A new query builder with the with clause appended.
+   */
+  with(...selections: Array<NodeRef | PathRef | string | ReturnSelection | ValueExpression>): QueryBuilder {
+    return this.addClause({
+      kind: "with",
+      selections: selections.map(selectionToAst),
+    });
+  }
+
+  /**
    * Adds an order-by clause.
    *
    * @param expressions - Value expressions or explicit order expressions.
@@ -826,6 +839,16 @@ export function value(value: Primitive): ValueExpression {
  */
 export function row(alias: string, key: string): ValueExpression {
   return { kind: "rowProperty", alias, key };
+}
+
+/**
+ * Creates a scalar variable expression for values projected by `with(...)`.
+ *
+ * @param name - Variable name available in the current query pipeline stage.
+ * @returns A variable value expression.
+ */
+export function variable(name: string): ValueExpression {
+  return { kind: "variable", name };
 }
 
 /**
@@ -1380,6 +1403,7 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "parameter" ||
       value.kind === "property" ||
       value.kind === "rowProperty" ||
+      value.kind === "variable" ||
       value.kind === "function")
   );
 }

@@ -401,6 +401,30 @@ SKIP $offset
 LIMIT 25
 ```
 
+Use `with(...)` to project values into the next pipeline stage:
+
+```ts
+const ast = query()
+  .match(user)
+  .optionalMatch(edge(user, "WROTE", post))
+  .with(user, count(post, "postCount"))
+  .where(gte(variable("postCount"), 1))
+  .return(select(user, "email", "email"), "postCount")
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+OPTIONAL MATCH (u:User)-[:WROTE]->(p:Post)
+WITH u, count(p) AS postCount
+WHERE postCount >= $p0
+RETURN u.email AS email, postCount
+```
+
+Use `variable(name)` when a later predicate, sort, or expression needs a scalar alias produced by `with(...)`.
+
 ### Path Traversal
 
 Use `traverse(...)` for variable-length graph reads:

@@ -114,10 +114,9 @@ export type MemoryRow = Record<string, MemoryValue>;
  * Object produced by an `unwind(...)` row binding.
  */
 export type MemoryRowObject = Record<string, Primitive>;
-type BindingValue = MemoryNode | MemoryEdge | MemoryRowObject;
-type PathBindingValue = BindingValue | MemoryPath | MemoryEdge[];
+type BindingValue = MemoryValue;
 const mergeCreatedState = Symbol("mergeCreatedState");
-type Binding = Record<string, PathBindingValue> & {
+type Binding = Record<string, BindingValue> & {
   [mergeCreatedState]?: boolean;
 };
 type MemoryContext = {
@@ -172,6 +171,9 @@ export function executeMemory(
         break;
       case "where":
         bindings = bindings.filter((binding) => evaluatePredicate(clause.predicate, binding, context));
+        break;
+      case "with":
+        bindings = projectWithBindings(bindings, clause.selections, context);
         break;
       case "set":
         bindings = bindings.map((binding) => setProperty(binding, clause.alias, clause.key, clause.value, context));
@@ -817,21 +819,31 @@ function evaluateValue(
     case "property": {
       const entity = binding[expression.alias];
 
-      if (!entity || (!isNode(entity) && !isEdge(entity))) {
+      if (!entity) {
         return null;
       }
 
-      return entity.properties[expression.key] ?? null;
+      if (isNode(entity) || isEdge(entity)) {
+        return entity.properties[expression.key] ?? null;
+      }
+
+      if (isRowObject(entity)) {
+        return entity[expression.key] ?? null;
+      }
+
+      return null;
     }
     case "rowProperty": {
       const row = binding[expression.alias];
 
-      if (!row || isNode(row) || isEdge(row) || isPath(row) || Array.isArray(row)) {
+      if (!isRowObject(row)) {
         return null;
       }
 
       return row[expression.key] ?? null;
     }
+    case "variable":
+      return primitiveOrNull(binding[expression.name]);
     case "function":
       return evaluateFunction(expression.name, expression.args, binding, context);
   }
@@ -855,7 +867,7 @@ function evaluateFunctionArgument(
   argument: FunctionArgumentExpression | undefined,
   binding: Binding,
   context: MemoryContext,
-): PathBindingValue | Primitive {
+): MemoryValue {
   if (!argument) {
     return null;
   }
@@ -949,6 +961,18 @@ function evaluateResultCount(
   return value;
 }
 
+function projectWithBindings(
+  bindings: Binding[],
+  selections: ReturnSelection[],
+  context: MemoryContext,
+): Binding[] {
+  const rows = selections.some((selection) => selection.kind === "aggregate")
+    ? projectAggregatedRows(bindings, selections, context)
+    : bindings.map((binding) => projectRow(binding, selections, context));
+
+  return rows.map((row) => ({ ...row }));
+}
+
 function nextId(prefix: "node" | "edge", entities: Array<MemoryNode | MemoryEdge>): string {
   const usedIds = new Set(entities.map((entity) => entity.id));
   let index = entities.length + 1;
@@ -1039,7 +1063,7 @@ function evaluateAggregate(
   bindings: Binding[],
   context: MemoryContext,
 ): MemoryValue {
-  const values = aggregateValues(target, bindings, fn === "count", context);
+  const values = aggregateValues(target, bindings, fn === "count" && target.kind === "all", context);
   const aggregateInput = distinct ? distinctValues(values) : values;
 
   switch (fn) {
@@ -1108,6 +1132,8 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return `${target.alias}.${target.key}`;
     case "rowProperty":
       return `${target.alias}.${target.key}`;
+    case "variable":
+      return target.name;
     case "parameter":
       return `$${target.name}`;
     case "primitive":
@@ -1179,7 +1205,7 @@ function stableValueKey(value: MemoryValue): string {
   return JSON.stringify(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-function primitiveOrNull(value: ParameterValue | undefined): Primitive {
+function primitiveOrNull(value: unknown): Primitive {
   return isPrimitive(value) ? value : null;
 }
 
@@ -1208,11 +1234,11 @@ function isPath(entity: unknown): entity is MemoryPath {
   return typeof entity === "object" && entity !== null && "nodes" in entity && "edges" in entity;
 }
 
-function isEntity(entity: PathBindingValue): entity is MemoryNode | MemoryEdge {
+function isEntity(entity: MemoryValue): entity is MemoryNode | MemoryEdge {
   return isNode(entity) || isEdge(entity);
 }
 
-function isSamePath(value: PathBindingValue, path: MemoryPath): boolean {
+function isSamePath(value: MemoryValue, path: MemoryPath): boolean {
   return (
     isPath(value) &&
     value.nodes.map((node) => node.id).join("\0") === path.nodes.map((node) => node.id).join("\0") &&
@@ -1220,10 +1246,16 @@ function isSamePath(value: PathBindingValue, path: MemoryPath): boolean {
   );
 }
 
-function isSameEdgeList(value: PathBindingValue, edges: MemoryEdge[]): boolean {
-  return (
-    Array.isArray(value) &&
-    value.length === edges.length &&
-    value.every((edge, index) => edge.id === edges[index]?.id)
-  );
+function isSameEdgeList(value: MemoryValue, edges: MemoryEdge[]): boolean {
+  if (!Array.isArray(value) || value.length !== edges.length) {
+    return false;
+  }
+
+  for (const [index, edge] of value.entries()) {
+    if (!isEdge(edge) || edge.id !== edges[index]?.id) {
+      return false;
+    }
+  }
+
+  return true;
 }

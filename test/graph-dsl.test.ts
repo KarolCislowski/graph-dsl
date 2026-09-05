@@ -13,6 +13,7 @@ import {
   eq,
   expr,
   executeMemory,
+  gte,
   map,
   max,
   min,
@@ -30,6 +31,7 @@ import {
   chunk,
   sum,
   traverse,
+  variable,
   type MemoryGraph,
 } from "../src/index.js";
 
@@ -234,6 +236,59 @@ describe("graph-dsl", () => {
       query: "MATCH (u:User)\nRETURN count(DISTINCT elementId(u)) AS users",
       params: {},
     });
+  });
+
+  it("compiles with clauses for pipeline queries", () => {
+    const user = node("u", "User");
+    const post = node("p", "Post");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .optionalMatch(edge(user, "WROTE", post))
+          .with(user, count(post, "postCount"))
+          .where(gte(variable("postCount"), 1))
+          .return(select(user, "email", "email"), "postCount")
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)\nOPTIONAL MATCH (u:User)-[:WROTE]->(p:Post)\nWITH u, count(p) AS postCount\nWHERE postCount >= $p0\nRETURN u.email AS email, postCount",
+      params: {
+        p0: 1,
+      },
+    });
+  });
+
+  it("executes with clauses for aggregate pipeline queries", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { email: "ada@example.com" } },
+        { id: "user-2", labels: ["User"], properties: { email: "grace@example.com" } },
+        { id: "post-1", labels: ["Post"], properties: { title: "Graph DSLs" } },
+        { id: "post-2", labels: ["Post"], properties: { title: "Compilers" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "WROTE", from: "user-1", to: "post-1", properties: {} },
+        { id: "edge-2", label: "WROTE", from: "user-1", to: "post-2", properties: {} },
+      ],
+    };
+    const user = node("u", "User");
+    const post = node("p", "Post");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .optionalMatch(edge(user, "WROTE", post))
+          .with(user, count(post, "postCount"))
+          .where(gte(variable("postCount"), 1))
+          .return(select(user, "email", "email"), "postCount")
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([{ email: "ada@example.com", postCount: 2 }]);
   });
 
   it("executes order, skip, and limit result controls against a memory graph", () => {

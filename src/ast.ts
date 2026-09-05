@@ -27,6 +27,7 @@ export type ValueExpression =
   | ParameterExpression
   | PropertyExpression
   | RowPropertyExpression
+  | VariableExpression
   | FunctionExpression;
 
 /**
@@ -63,6 +64,14 @@ export type RowPropertyExpression = {
   kind: "rowProperty";
   alias: string;
   key: string;
+};
+
+/**
+ * Reference to a scalar value bound by `WITH`, such as `postCount`.
+ */
+export type VariableExpression = {
+  kind: "variable";
+  name: string;
 };
 
 /**
@@ -325,6 +334,14 @@ export type ReturnClause = {
 };
 
 /**
+ * Clause projecting values into the next query pipeline stage.
+ */
+export type WithClause = {
+  kind: "with";
+  selections: ReturnSelection[];
+};
+
+/**
  * Direction used by `ORDER BY`.
  */
 export type SortDirection = "asc" | "desc";
@@ -419,6 +436,7 @@ export type Clause =
   | CreateEdgeClause
   | MergeEdgeClause
   | WhereClause
+  | WithClause
   | ReturnClause
   | OrderByClause
   | SkipClause
