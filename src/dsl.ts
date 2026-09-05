@@ -5,6 +5,8 @@ import type {
   Direction,
   EdgePattern,
   NodePattern,
+  OrderExpression,
+  ParameterExpression,
   PathPattern,
   Pattern,
   PredicateExpression,
@@ -27,6 +29,7 @@ export type AggregateOptions = {
 };
 
 type AggregateTargetInput = NodeRef | EdgeRef | PathRef | string | ValueExpression;
+type ResultCountInput = number | ParameterExpression;
 
 /**
  * One property assignment accepted by `setProps(...)`.
@@ -387,6 +390,24 @@ export class QueryBuilder {
   }
 
   /**
+   * Adds an optional match clause.
+   *
+   * If the optional patterns do not match, the current row remains in the
+   * result set and projected values from the optional aliases evaluate to null.
+   *
+   * @param patterns - Node, edge, path, or raw AST patterns to optionally match.
+   * @returns A new query builder with the optional match clause appended.
+   */
+  optionalMatch(...patterns: Array<NodeRef | EdgeRef | PathRef | Pattern>): QueryBuilder {
+    this.assertHasRequiredMatch();
+
+    return this.addClause({
+      kind: "optionalMatch",
+      patterns: patterns.flatMap(patternToAst).map((pattern) => applyScope(pattern, this.scopeProperties)),
+    });
+  }
+
+  /**
    * Adds a create clause.
    *
    * @param patterns - Node, edge, or raw AST patterns to create.
@@ -473,6 +494,45 @@ export class QueryBuilder {
     return this.addClause({
       kind: "return",
       selections: selections.map(selectionToAst),
+    });
+  }
+
+  /**
+   * Adds an order-by clause.
+   *
+   * @param expressions - Value expressions or explicit order expressions.
+   * @returns A new query builder with the order-by clause appended.
+   */
+  orderBy(...expressions: Array<ValueExpression | OrderExpression>): QueryBuilder {
+    return this.addClause({
+      kind: "orderBy",
+      expressions: expressions.map(orderExpressionToAst),
+    });
+  }
+
+  /**
+   * Adds a skip clause.
+   *
+   * @param count - Non-negative integer or parameter expression.
+   * @returns A new query builder with the skip clause appended.
+   */
+  skip(count: ResultCountInput): QueryBuilder {
+    return this.addClause({
+      kind: "skip",
+      count: normalizeResultCount("skip", count),
+    });
+  }
+
+  /**
+   * Adds a limit clause.
+   *
+   * @param count - Non-negative integer or parameter expression.
+   * @returns A new query builder with the limit clause appended.
+   */
+  limit(count: ResultCountInput): QueryBuilder {
+    return this.addClause({
+      kind: "limit",
+      count: normalizeResultCount("limit", count),
     });
   }
 
@@ -642,6 +702,12 @@ export class QueryBuilder {
       throw new Error(`${method}() must be called immediately after merge(), mergeEdge(), or another merge set clause.`);
     }
   }
+
+  private assertHasRequiredMatch(): void {
+    if (!this.ast.clauses.some((clause) => clause.kind === "match")) {
+      throw new Error("optionalMatch() requires a preceding match() clause to anchor the query.");
+    }
+  }
 }
 
 function normalizeDeleteAlias(alias: NodeRef | EdgeRef | string): string {
@@ -733,7 +799,7 @@ export function path(alias: string, from: NodeRef, label: string, to: NodeRef, d
  * @param name - Parameter name without backend-specific prefixing.
  * @returns A parameter value expression.
  */
-export function param(name: string): ValueExpression {
+export function param(name: string): ParameterExpression {
   return { kind: "parameter", name };
 }
 
@@ -789,6 +855,20 @@ export function select(ref: NodeRef | string, key: string, as?: string): ReturnS
     alias: typeof ref === "string" ? ref : ref.alias,
     key,
     ...(as ? { as } : {}),
+  };
+}
+
+/**
+ * Creates an explicit order expression for `orderBy(...)`.
+ *
+ * @param expression - Value expression to sort by.
+ * @param direction - Sort direction. Defaults to ascending.
+ * @returns An order expression.
+ */
+export function order(expression: ValueExpression, direction: "asc" | "desc" = "asc"): OrderExpression {
+  return {
+    expression,
+    direction,
   };
 }
 
@@ -1096,6 +1176,29 @@ function assertWritePatterns(method: "create" | "merge", patterns: Pattern[]): v
   if (hasPathPattern) {
     throw new Error(`${method}() does not support path/traversal patterns. Use match(...) for traversals.`);
   }
+}
+
+function orderExpressionToAst(expression: ValueExpression | OrderExpression): OrderExpression {
+  if ("expression" in expression) {
+    return expression;
+  }
+
+  return {
+    expression,
+    direction: "asc",
+  };
+}
+
+function normalizeResultCount(method: "skip" | "limit", count: ResultCountInput): ResultCountInput {
+  if (typeof count !== "number") {
+    return count;
+  }
+
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error(`${method}() expects a non-negative integer or parameter expression.`);
+  }
+
+  return count;
 }
 
 function aggregate(

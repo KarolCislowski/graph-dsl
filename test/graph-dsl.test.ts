@@ -15,6 +15,7 @@ import {
   min,
   node,
   neq,
+  order,
   param,
   path,
   prop,
@@ -73,6 +74,111 @@ describe("graph-dsl", () => {
         p0: "inactive",
       },
     });
+  });
+
+  it("compiles optional match clauses to Cypher", () => {
+    const user = node("u", "User");
+    const post = node("p", "Post");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .optionalMatch(edge(user, "WROTE", post))
+          .return(select(user, "email", "email"), select(post, "title", "title"))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)\nOPTIONAL MATCH (u:User)-[:WROTE]->(p:Post)\nRETURN u.email AS email, p.title AS title",
+      params: {},
+    });
+  });
+
+  it("preserves rows without optional matches in the memory executor", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { email: "ada@example.com" } },
+        { id: "user-2", labels: ["User"], properties: { email: "grace@example.com" } },
+        { id: "post-1", labels: ["Post"], properties: { title: "Graph DSLs" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "WROTE", from: "user-1", to: "post-1", properties: {} },
+      ],
+    };
+    const user = node("u", "User");
+    const post = node("p", "Post");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .optionalMatch(edge(user, "WROTE", post))
+          .orderBy(user.prop("email"))
+          .return(select(user, "email", "email"), select(post, "title", "title"))
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      { email: "ada@example.com", title: "Graph DSLs" },
+      { email: "grace@example.com", title: null },
+    ]);
+  });
+
+  it("requires a non-optional match before optionalMatch", () => {
+    expect(() =>
+      query()
+        .optionalMatch(edge(node("u", "User"), "WROTE", node("p", "Post")))
+        .toAst(),
+    ).toThrow("optionalMatch() requires a preceding match() clause to anchor the query.");
+  });
+
+  it("compiles order, skip, and limit result controls to Cypher", () => {
+    const user = node("u", "User");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .return(select(user, "name", "name"))
+          .orderBy(order(user.prop("name"), "desc"))
+          .skip(param("offset"))
+          .limit(10)
+          .toAst(),
+        { params: { offset: 20 } },
+      ),
+    ).toEqual({
+      query: "MATCH (u:User)\nRETURN u.name AS name\nORDER BY u.name DESC\nSKIP $offset\nLIMIT 10",
+      params: {
+        offset: 20,
+      },
+    });
+  });
+
+  it("executes order, skip, and limit result controls against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { name: "Ada", score: 30 } },
+        { id: "user-2", labels: ["User"], properties: { name: "Grace", score: 10 } },
+        { id: "user-3", labels: ["User"], properties: { name: "Katherine", score: 20 } },
+      ],
+      edges: [],
+    };
+    const user = node("u", "User");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .orderBy(order(user.prop("score"), "asc"))
+          .skip(1)
+          .limit(param("pageSize"))
+          .return(select(user, "name", "name"))
+          .toAst(),
+        graph,
+        { params: { pageSize: 1 } },
+      ),
+    ).toEqual([{ name: "Katherine" }]);
   });
 
   it("compiles the Ladybug Cypher MVP subset", () => {

@@ -61,6 +61,8 @@ function compileClause(clause: Clause, context: CypherContext): string {
       return `UNWIND ${compileValue(clause.source, context)} AS ${escapeIdentifier(clause.as)}`;
     case "match":
       return compileMatchClause(clause.patterns, context);
+    case "optionalMatch":
+      return compileMatchClause(clause.patterns, context, { optional: true });
     case "create":
       return `CREATE ${compilePatterns(clause.patterns, context)}`;
     case "merge":
@@ -73,6 +75,14 @@ function compileClause(clause: Clause, context: CypherContext): string {
       return `WHERE ${compilePredicate(clause.predicate, context)}`;
     case "return":
       return `RETURN ${clause.selections.map((selection) => compileReturnSelection(selection, context)).join(", ")}`;
+    case "orderBy":
+      return `ORDER BY ${clause.expressions
+        .map((expression) => `${compileValue(expression.expression, context)} ${expression.direction.toUpperCase()}`)
+        .join(", ")}`;
+    case "skip":
+      return `SKIP ${compileResultCount(clause.count)}`;
+    case "limit":
+      return `LIMIT ${compileResultCount(clause.count)}`;
     case "set":
       return `SET ${escapeIdentifier(clause.alias)}.${escapeIdentifier(clause.key)} = ${compileValue(
         clause.value,
@@ -95,8 +105,12 @@ function compileClause(clause: Clause, context: CypherContext): string {
   }
 }
 
-function compileMatchClause(patterns: Pattern[], context: CypherContext): string {
-  const match = `MATCH ${compilePatterns(patterns, context)}`;
+function compileMatchClause(
+  patterns: Pattern[],
+  context: CypherContext,
+  options: { optional?: boolean } = {},
+): string {
+  const match = `${options.optional ? "OPTIONAL MATCH" : "MATCH"} ${compilePatterns(patterns, context)}`;
   const pathScopePredicates = compilePathScopePredicates(patterns, context);
 
   if (pathScopePredicates.length === 0) {
@@ -104,6 +118,10 @@ function compileMatchClause(patterns: Pattern[], context: CypherContext): string
   }
 
   return `${match}\nWHERE ${pathScopePredicates.join(" AND ")}\nWITH *`;
+}
+
+function compileResultCount(count: number | { kind: "parameter"; name: string }): string {
+  return typeof count === "number" ? String(count) : `$${count.name}`;
 }
 
 function compileBoundEdgePath(edge: EdgePattern, context: CypherContext): string {

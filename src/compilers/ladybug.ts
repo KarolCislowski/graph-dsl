@@ -63,6 +63,7 @@ function validateLadybugAst(ast: QueryAst): void {
 function validateClause(clause: Clause): void {
   switch (clause.kind) {
     case "match":
+    case "optionalMatch":
       validatePatterns(clause.patterns, { requireNodeLabels: false });
       return;
     case "create":
@@ -78,6 +79,9 @@ function validateClause(clause: Clause): void {
     case "unwind":
     case "where":
     case "return":
+    case "orderBy":
+    case "skip":
+    case "limit":
     case "set":
     case "onCreateSet":
     case "onMatchSet":

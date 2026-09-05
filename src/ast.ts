@@ -174,6 +174,17 @@ export type MatchClause = {
 };
 
 /**
+ * Clause describing graph patterns to optionally match.
+ *
+ * If no pattern matches, the current binding is preserved and newly referenced
+ * aliases remain unbound.
+ */
+export type OptionalMatchClause = {
+  kind: "optionalMatch";
+  patterns: Pattern[];
+};
+
+/**
  * Clause describing graph patterns to create.
  */
 export type CreateClause = {
@@ -279,6 +290,43 @@ export type ReturnClause = {
 };
 
 /**
+ * Direction used by `ORDER BY`.
+ */
+export type SortDirection = "asc" | "desc";
+
+/**
+ * One expression used by an `ORDER BY` clause.
+ */
+export type OrderExpression = {
+  expression: ValueExpression;
+  direction: SortDirection;
+};
+
+/**
+ * Clause sorting the current binding set or projected rows.
+ */
+export type OrderByClause = {
+  kind: "orderBy";
+  expressions: OrderExpression[];
+};
+
+/**
+ * Clause skipping rows from the current binding set or projected rows.
+ */
+export type SkipClause = {
+  kind: "skip";
+  count: number | ParameterExpression;
+};
+
+/**
+ * Clause limiting rows from the current binding set or projected rows.
+ */
+export type LimitClause = {
+  kind: "limit";
+  count: number | ParameterExpression;
+};
+
+/**
  * Clause setting one property on a bound graph entity.
  */
 export type SetPropertyClause = {
@@ -330,12 +378,16 @@ export type DetachDeleteClause = {
 export type Clause =
   | UnwindClause
   | MatchClause
+  | OptionalMatchClause
   | CreateClause
   | MergeClause
   | CreateEdgeClause
   | MergeEdgeClause
   | WhereClause
   | ReturnClause
+  | OrderByClause
+  | SkipClause
+  | LimitClause
   | SetPropertyClause
   | OnCreateSetClause
   | OnMatchSetClause

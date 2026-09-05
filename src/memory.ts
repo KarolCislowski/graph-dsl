@@ -154,6 +154,9 @@ export function executeMemory(
       case "match":
         bindings = matchPatterns(bindings, clause.patterns, graph, context);
         break;
+      case "optionalMatch":
+        bindings = optionalMatchPatterns(bindings, clause.patterns, graph, context);
+        break;
       case "create":
         bindings = createPatterns(bindings, clause.patterns, graph, context);
         break;
@@ -195,6 +198,15 @@ export function executeMemory(
       case "return":
         selections = clause.selections;
         break;
+      case "orderBy":
+        bindings = orderBindings(bindings, clause.expressions, context);
+        break;
+      case "skip":
+        bindings = bindings.slice(evaluateResultCount(clause.count, context));
+        break;
+      case "limit":
+        bindings = bindings.slice(0, evaluateResultCount(clause.count, context));
+        break;
     }
   }
 
@@ -234,6 +246,18 @@ function matchPatterns(
       currentBindings.flatMap((binding) => matchPattern(binding, pattern, graph, context)),
     bindings,
   );
+}
+
+function optionalMatchPatterns(
+  bindings: Binding[],
+  patterns: Pattern[],
+  graph: MemoryGraph,
+  context: MemoryContext,
+): Binding[] {
+  return bindings.flatMap((binding) => {
+    const matches = matchPatterns([binding], patterns, graph, context);
+    return matches.length > 0 ? matches : [binding];
+  });
 }
 
 function matchPattern(
@@ -832,6 +856,64 @@ function evaluateProperties(
   return Object.fromEntries(
     Object.entries(properties).map(([key, expression]) => [key, evaluateValue(expression, binding, context)]),
   );
+}
+
+function orderBindings(
+  bindings: Binding[],
+  expressions: Array<{ expression: ValueExpression; direction: "asc" | "desc" }>,
+  context: MemoryContext,
+): Binding[] {
+  return [...bindings].sort((left, right) => {
+    for (const expression of expressions) {
+      const result = compareOptionalPrimitives(
+        evaluateValue(expression.expression, left, context),
+        evaluateValue(expression.expression, right, context),
+      );
+
+      if (result !== 0) {
+        return expression.direction === "asc" ? result : -result;
+      }
+    }
+
+    return 0;
+  });
+}
+
+function compareOptionalPrimitives(left: Primitive, right: Primitive): number {
+  if (left === right) {
+    return 0;
+  }
+
+  if (left === null) {
+    return 1;
+  }
+
+  if (right === null) {
+    return -1;
+  }
+
+  if (typeof left === "number" && typeof right === "number") {
+    return left - right;
+  }
+
+  return String(left).localeCompare(String(right));
+}
+
+function evaluateResultCount(
+  count: number | { kind: "parameter"; name: string },
+  context: MemoryContext,
+): number {
+  if (typeof count === "number") {
+    return count;
+  }
+
+  const value = context.params[count.name];
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`Expected parameter "${count.name}" to be a non-negative integer.`);
+  }
+
+  return value;
 }
 
 function nextId(prefix: "node" | "edge", entities: Array<MemoryNode | MemoryEdge>): string {

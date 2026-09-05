@@ -359,6 +359,48 @@ WHERE u.email = $email
 RETURN p.title AS title, u.name AS author
 ```
 
+Use `optionalMatch(...)` when related data should not filter out the base row:
+
+```ts
+const ast = query()
+  .match(user)
+  .optionalMatch(edge(user, "WROTE", post))
+  .return(select(user, "email", "email"), select(post, "title", "title"))
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+OPTIONAL MATCH (u:User)-[:WROTE]->(p:Post)
+RETURN u.email AS email, p.title AS title
+```
+
+`optionalMatch(...)` must follow at least one non-optional `match(...)` clause so the query is anchored before optional expansion.
+
+Use `orderBy(...)`, `skip(...)`, and `limit(...)` to control result order and pagination:
+
+```ts
+const ast = query()
+  .match(user)
+  .return(select(user, "name", "name"))
+  .orderBy(order(user.prop("name"), "desc"))
+  .skip(param("offset"))
+  .limit(25)
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+RETURN u.name AS name
+ORDER BY u.name DESC
+SKIP $offset
+LIMIT 25
+```
+
 ### Path Traversal
 
 Use `traverse(...)` for variable-length graph reads:
