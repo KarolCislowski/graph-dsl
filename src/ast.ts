@@ -20,6 +20,11 @@ export type ParameterValue =
   | Array<Primitive | Record<string, Primitive>>;
 
 /**
+ * Literal list values accepted by expression helpers.
+ */
+export type PrimitiveList = Primitive[];
+
+/**
  * A value-producing expression used in predicates, properties, and updates.
  */
 export type ValueExpression =
@@ -35,7 +40,7 @@ export type ValueExpression =
  */
 export type PrimitiveExpression = {
   kind: "primitive";
-  value: Primitive;
+  value: Primitive | PrimitiveList;
 };
 
 /**
@@ -99,7 +104,7 @@ export type FunctionExpression = {
 /**
  * Supported built-in function expressions.
  */
-export type FunctionName = "elementId";
+export type FunctionName = "elementId" | "type" | "labels" | "coalesce";
 
 /**
  * Boolean expression used by `where(...)`.
@@ -112,7 +117,7 @@ export type PredicateExpression =
 /**
  * Supported binary predicate operators.
  */
-export type BinaryOperator = "=" | "!=" | ">" | ">=" | "<" | "<=" | "contains";
+export type BinaryOperator = "=" | "!=" | ">" | ">=" | "<" | "<=" | "contains" | "in";
 
 /**
  * Predicate comparing two value expressions.

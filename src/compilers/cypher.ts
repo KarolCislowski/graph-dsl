@@ -319,7 +319,13 @@ function compilePredicate(predicate: PredicateExpression, context: CypherContext
   switch (predicate.kind) {
     case "binary": {
       const operator =
-        predicate.operator === "contains" ? "CONTAINS" : predicate.operator === "!=" ? "<>" : predicate.operator;
+        predicate.operator === "contains"
+          ? "CONTAINS"
+          : predicate.operator === "!="
+            ? "<>"
+            : predicate.operator === "in"
+              ? "IN"
+              : predicate.operator;
       return `${compileValue(predicate.left, context)} ${operator} ${compileValue(predicate.right, context)}`;
     }
     case "logical":

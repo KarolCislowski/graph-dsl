@@ -1196,6 +1196,34 @@ RETURN { id: elementId(u), email: u.email, source: $p0 } AS user
 
 `elementId(...)` accepts a node reference, an aliased edge reference, or an alias string. Edge references must be aliased before they can be passed to `elementId(...)`.
 
+Use `labels(...)`, `type(...)`, `coalesce(...)`, and `inList(...)` for common data-view expressions:
+
+```ts
+const user = node("u", "User");
+const post = node("p", "Post");
+const wrote = edge(user, "WROTE", post).as("r");
+
+query()
+  .match(wrote)
+  .where(inList(value("Author"), labels(user)))
+  .return(
+    expr(type(wrote), "relationshipType"),
+    map("user", {
+      id: elementId(user),
+      labels: labels(user),
+      displayName: coalesce(user.prop("name"), user.prop("email"), "Unknown"),
+    }),
+  );
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)-[r:WROTE]->(p:Post)
+WHERE $p0 IN labels(u)
+RETURN type(r) AS relationshipType, { id: elementId(u), labels: labels(u), displayName: coalesce(u.name, u.email, $p1) } AS user
+```
+
 ## Cypher Compiler
 
 ```ts

@@ -105,7 +105,9 @@ export type MemoryValue =
   | MemoryEdge[]
   | MemoryPath
   | MemoryRowObject
+  | MemoryProjectionObject
   | Primitive
+  | Primitive[]
   | MemoryValue[];
 
 export type MemoryRow = Record<string, MemoryValue>;
@@ -114,6 +116,9 @@ export type MemoryRow = Record<string, MemoryValue>;
  * Object produced by an `unwind(...)` row binding.
  */
 export type MemoryRowObject = Record<string, Primitive>;
+export interface MemoryProjectionObject {
+  [key: string]: MemoryValue;
+}
 type BindingValue = MemoryValue;
 const mergeCreatedState = Symbol("mergeCreatedState");
 type Binding = Record<string, BindingValue> & {
@@ -676,7 +681,7 @@ function setProperty(
     return binding;
   }
 
-  entity.properties[key] = evaluateValue(nextValue, binding, context);
+  entity.properties[key] = primitiveOrNull(evaluateValue(nextValue, binding, context));
   return binding;
 }
 
@@ -781,7 +786,7 @@ function evaluatePredicate(
   }
 }
 
-function evaluateBinary(operator: string, left: Primitive, right: Primitive): boolean {
+function evaluateBinary(operator: string, left: MemoryValue, right: MemoryValue): boolean {
   switch (operator) {
     case "=":
       return left === right;
@@ -797,12 +802,14 @@ function evaluateBinary(operator: string, left: Primitive, right: Primitive): bo
       return compare(left, right, (a, b) => a <= b);
     case "contains":
       return typeof left === "string" && typeof right === "string" && left.includes(right);
+    case "in":
+      return Array.isArray(right) && right.some((value) => isPrimitive(value) && value === left);
     default:
       throw new Error(`Unsupported operator "${operator}".`);
   }
 }
 
-function compare(left: Primitive, right: Primitive, compareValues: (left: number, right: number) => boolean): boolean {
+function compare(left: MemoryValue, right: MemoryValue, compareValues: (left: number, right: number) => boolean): boolean {
   return typeof left === "number" && typeof right === "number" && compareValues(left, right);
 }
 
@@ -810,7 +817,7 @@ function evaluateValue(
   expression: ValueExpression,
   binding: Binding,
   context: MemoryContext,
-): Primitive {
+): MemoryValue {
   switch (expression.kind) {
     case "primitive":
       return expression.value;
@@ -850,16 +857,34 @@ function evaluateValue(
 }
 
 function evaluateFunction(
-  name: "elementId",
+  name: "elementId" | "type" | "labels" | "coalesce",
   args: FunctionArgumentExpression[],
   binding: Binding,
   context: MemoryContext,
-): Primitive {
+): MemoryValue {
   switch (name) {
     case "elementId": {
       const target = evaluateFunctionArgument(args[0], binding, context);
       return isNode(target) || isEdge(target) ? target.id : null;
     }
+    case "type": {
+      const target = evaluateFunctionArgument(args[0], binding, context);
+      return isEdge(target) ? target.label : null;
+    }
+    case "labels": {
+      const target = evaluateFunctionArgument(args[0], binding, context);
+      return isNode(target) ? target.labels : [];
+    }
+    case "coalesce":
+      for (const argument of args) {
+        const value = evaluateFunctionArgument(argument, binding, context);
+
+        if (value !== null) {
+          return value;
+        }
+      }
+
+      return null;
   }
 }
 
@@ -886,11 +911,11 @@ function evaluateList(
 ): MemoryRowObject[] {
   if (expression.kind === "parameter") {
     const value = context.params[expression.name];
-    return Array.isArray(value) && value.every(isRowObject) ? value : [];
+    return isRowObjectArray(value) ? value : [];
   }
 
   const value = evaluateValue(expression, binding, context);
-  return Array.isArray(value) && value.every(isRowObject) ? value : [];
+  return isRowObjectArray(value) ? value : [];
 }
 
 function evaluateProperties(
@@ -899,7 +924,7 @@ function evaluateProperties(
   context: MemoryContext,
 ): Record<string, Primitive> {
   return Object.fromEntries(
-    Object.entries(properties).map(([key, expression]) => [key, evaluateValue(expression, binding, context)]),
+    Object.entries(properties).map(([key, expression]) => [key, primitiveOrNull(evaluateValue(expression, binding, context))]),
   );
 }
 
@@ -924,9 +949,17 @@ function orderBindings(
   });
 }
 
-function compareOptionalPrimitives(left: Primitive, right: Primitive): number {
+function compareOptionalPrimitives(left: MemoryValue, right: MemoryValue): number {
   if (left === right) {
     return 0;
+  }
+
+  if (!isPrimitive(left)) {
+    return 1;
+  }
+
+  if (!isPrimitive(right)) {
+    return -1;
   }
 
   if (left === null) {
@@ -1220,6 +1253,10 @@ function isRowObject(value: unknown): value is MemoryRowObject {
     !Array.isArray(value) &&
     Object.values(value).every(isPrimitive)
   );
+}
+
+function isRowObjectArray(value: unknown): value is MemoryRowObject[] {
+  return Array.isArray(value) && value.every(isRowObject);
 }
 
 function isNode(entity: unknown): entity is MemoryNode {

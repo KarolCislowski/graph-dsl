@@ -4,6 +4,7 @@ import {
   collect,
   compileCypher,
   compileLadybugCypher,
+  coalesce,
   count,
   countAll,
   defineEdgeFromJson,
@@ -14,6 +15,8 @@ import {
   expr,
   executeMemory,
   gte,
+  inList,
+  labels,
   map,
   max,
   min,
@@ -31,6 +34,8 @@ import {
   chunk,
   sum,
   traverse,
+  type as relationshipType,
+  value,
   variable,
   type MemoryGraph,
 } from "../src/index.js";
@@ -236,6 +241,78 @@ describe("graph-dsl", () => {
       query: "MATCH (u:User)\nRETURN count(DISTINCT elementId(u)) AS users",
       params: {},
     });
+  });
+
+  it("compiles relationship type, labels, coalesce, and IN expressions to Cypher", () => {
+    const user = node("u", "User");
+    const post = node("p", "Post");
+    const wrote = edge(user, "WROTE", post).as("r");
+
+    expect(
+      compileCypher(
+        query()
+          .match(wrote)
+          .where(inList(value("User"), labels(user)))
+          .return(
+            expr(relationshipType(wrote), "relationshipType"),
+            map("user", {
+              id: elementId(user),
+              labels: labels(user),
+              displayName: coalesce(user.prop("name"), user.prop("email"), "Unknown"),
+            }),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)-[r:WROTE]->(p:Post)\nWHERE $p0 IN labels(u)\nRETURN type(r) AS relationshipType, { id: elementId(u), labels: labels(u), displayName: coalesce(u.name, u.email, $p1) } AS user",
+      params: {
+        p0: "User",
+        p1: "Unknown",
+      },
+    });
+  });
+
+  it("executes relationship type, labels, coalesce, and IN expressions against memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User", "Author"], properties: { email: "ada@example.com" } },
+        { id: "post-1", labels: ["Post"], properties: { title: "Graph DSLs" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "WROTE", from: "user-1", to: "post-1", properties: {} },
+      ],
+    };
+    const user = node("u", "User");
+    const post = node("p", "Post");
+    const wrote = edge(user, "WROTE", post).as("r");
+
+    expect(
+      executeMemory(
+        query()
+          .match(wrote)
+          .where(inList(value("Author"), labels(user)))
+          .return(
+            expr(relationshipType(wrote), "relationshipType"),
+            map("user", {
+              id: elementId(user),
+              labels: labels(user),
+              displayName: coalesce(user.prop("name"), user.prop("email"), "Unknown"),
+            }),
+          )
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        relationshipType: "WROTE",
+        user: {
+          id: "user-1",
+          labels: ["User", "Author"],
+          displayName: "ada@example.com",
+        },
+      },
+    ]);
   });
 
   it("compiles with clauses for pipeline queries", () => {

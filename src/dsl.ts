@@ -12,6 +12,7 @@ import type {
   Pattern,
   PredicateExpression,
   Primitive,
+  PrimitiveList,
   QueryAst,
   ReturnSelection,
   ValueExpression,
@@ -31,6 +32,7 @@ export type AggregateOptions = {
 
 type AggregateTargetInput = NodeRef | EdgeRef | PathRef | string | ValueExpression;
 type AliasTargetInput = NodeRef | EdgeRef | string;
+type NodeAliasTargetInput = NodeRef | string;
 type ResultCountInput = number | ParameterExpression;
 
 /**
@@ -824,7 +826,7 @@ export function param(name: string): ParameterExpression {
  * @param value - Primitive literal value.
  * @returns A primitive value expression.
  */
-export function value(value: Primitive): ValueExpression {
+export function value(value: Primitive | PrimitiveList): ValueExpression {
   return { kind: "primitive", value };
 }
 
@@ -938,6 +940,48 @@ export function elementId(target: AliasTargetInput): ValueExpression {
     kind: "function",
     name: "elementId",
     args: [aliasTargetToExpression(target)],
+  };
+}
+
+/**
+ * Creates a `type(...)` expression for a bound relationship.
+ *
+ * @param target - Aliased edge reference or edge alias.
+ * @returns A scalar function expression.
+ */
+export function type(target: EdgeRef | string): ValueExpression {
+  return {
+    kind: "function",
+    name: "type",
+    args: [aliasTargetToExpression(target)],
+  };
+}
+
+/**
+ * Creates a `labels(...)` expression for a bound node.
+ *
+ * @param target - Node reference or node alias.
+ * @returns A list-valued function expression.
+ */
+export function labels(target: NodeAliasTargetInput): ValueExpression {
+  return {
+    kind: "function",
+    name: "labels",
+    args: [aliasTargetToExpression(target)],
+  };
+}
+
+/**
+ * Creates a `coalesce(...)` expression from ordered fallback values.
+ *
+ * @param expressions - Expressions or primitive literals to evaluate in order.
+ * @returns A scalar function expression.
+ */
+export function coalesce(...expressions: Array<ValueExpression | Primitive>): ValueExpression {
+  return {
+    kind: "function",
+    name: "coalesce",
+    args: expressions.map((expression) => isValueExpression(expression) ? expression : value(expression)),
   };
 }
 
@@ -1101,6 +1145,17 @@ export function lte(left: ValueExpression, right: ValueExpression | Primitive): 
  */
 export function contains(left: ValueExpression, right: ValueExpression | Primitive): PredicateExpression {
   return binary("contains", left, right);
+}
+
+/**
+ * Creates a Cypher `IN` predicate.
+ *
+ * @param left - Value to look up.
+ * @param right - List-producing expression, usually a parameter or `labels(...)`.
+ * @returns A predicate expression.
+ */
+export function inList(left: ValueExpression, right: ValueExpression | PrimitiveList): PredicateExpression {
+  return binary("in", left, isValueExpression(right) ? right : value(right));
 }
 
 /**
