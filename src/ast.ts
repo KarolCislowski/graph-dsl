@@ -384,6 +384,15 @@ export type LimitClause = {
 };
 
 /**
+ * Clause executing a nested query for each current binding.
+ */
+export type CallClause = {
+  kind: "call";
+  query: QueryAst;
+  importAliases: string[];
+};
+
+/**
  * Clause setting one property on a bound graph entity.
  */
 export type SetPropertyClause = {
@@ -446,6 +455,7 @@ export type Clause =
   | OrderByClause
   | SkipClause
   | LimitClause
+  | CallClause
   | SetPropertyClause
   | OnCreateSetClause
   | OnMatchSetClause

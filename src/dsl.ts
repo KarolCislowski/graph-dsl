@@ -36,6 +36,16 @@ type NodeAliasTargetInput = NodeRef | string;
 type ResultCountInput = number | ParameterExpression;
 
 /**
+ * Options accepted by `call(...)`.
+ */
+export type CallOptions = {
+  /**
+   * Aliases to import into the subquery with an initial `WITH` clause.
+   */
+  import?: Array<NodeRef | EdgeRef | PathRef | string>;
+};
+
+/**
  * One property assignment accepted by `setProps(...)`.
  */
 export type PropertySet = {
@@ -554,6 +564,24 @@ export class QueryBuilder {
   }
 
   /**
+   * Adds a subquery clause.
+   *
+   * Imported aliases are emitted as the first `WITH` inside the subquery and
+   * are available to the in-memory executor while evaluating the nested query.
+   *
+   * @param subquery - Nested query builder or AST to execute.
+   * @param options - Optional imported aliases.
+   * @returns A new query builder with the call clause appended.
+   */
+  call(subquery: QueryBuilder | QueryAst, options: CallOptions = {}): QueryBuilder {
+    return this.addClause({
+      kind: "call",
+      query: subquery instanceof QueryBuilder ? subquery.toAst() : structuredClone(subquery),
+      importAliases: (options.import ?? []).map(normalizeAlias),
+    });
+  }
+
+  /**
    * Adds a property update clause.
    *
    * @param property - Property expression to update, for example `prop("u", "name")`.
@@ -721,8 +749,8 @@ export class QueryBuilder {
   }
 
   private assertHasRequiredMatch(): void {
-    if (!this.ast.clauses.some((clause) => clause.kind === "match")) {
-      throw new Error("optionalMatch() requires a preceding match() clause to anchor the query.");
+    if (!this.ast.clauses.some((clause) => clause.kind === "match" || clause.kind === "with")) {
+      throw new Error("optionalMatch() requires a preceding match() or with() clause to anchor the query.");
     }
   }
 }
@@ -740,6 +768,30 @@ function normalizeDeleteAlias(alias: NodeRef | EdgeRef | string): string {
     }
 
     return edgeAlias;
+  }
+
+  return alias.alias;
+}
+
+function normalizeAlias(alias: NodeRef | EdgeRef | PathRef | string): string {
+  if (typeof alias === "string") {
+    return alias;
+  }
+
+  if (alias instanceof EdgeRef) {
+    if (!alias.alias) {
+      throw new Error("call() import expects an aliased edge, for example edge(a, \"KNOWS\", b).as(\"r\").");
+    }
+
+    return alias.alias;
+  }
+
+  if (alias instanceof PathRef) {
+    if (!alias.alias) {
+      throw new Error("call() import expects an aliased path, for example path(\"p\", a, \"KNOWS\", b).");
+    }
+
+    return alias.alias;
   }
 
   return alias.alias;

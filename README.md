@@ -425,6 +425,43 @@ RETURN u.email AS email, postCount
 
 Use `variable(name)` when a later predicate, sort, or expression needs a scalar alias produced by `with(...)`.
 
+Use `call(...)` for nested subqueries that produce additional columns for each current row:
+
+```ts
+const user = node("u", "User");
+const post = node("p", "Post");
+
+const postCount = query()
+  .with(user)
+  .optionalMatch(edge(user, "WROTE", post))
+  .return(count(post, "postCount"));
+
+const ast = query()
+  .match(user)
+  .call(postCount, { import: [user] })
+  .return(
+    map("user", {
+      email: user.prop("email"),
+      postCount: variable("postCount"),
+    }),
+  )
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+CALL {
+  WITH u
+  OPTIONAL MATCH (u:User)-[:WROTE]->(p:Post)
+  RETURN count(p) AS postCount
+}
+RETURN { email: u.email, postCount: postCount } AS user
+```
+
+When a subquery needs outer aliases, pass them through `call(subquery, { import: [...] })`. In Cypher this is represented by an initial `WITH` inside the subquery. For the in-memory executor, the same import list controls which outer bindings are visible to the nested query.
+
 ### Path Traversal
 
 Use `traverse(...)` for variable-length graph reads:

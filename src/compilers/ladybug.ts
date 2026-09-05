@@ -76,6 +76,9 @@ function validateClause(clause: Clause): void {
         validateEdge(edge);
       }
       return;
+    case "call":
+      validateLadybugAst(clause.query);
+      return;
     case "unwind":
     case "where":
     case "with":

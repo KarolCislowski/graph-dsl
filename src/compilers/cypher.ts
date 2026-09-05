@@ -86,6 +86,8 @@ function compileClause(clause: Clause, context: CypherContext): string {
       return `SKIP ${compileResultCount(clause.count)}`;
     case "limit":
       return `LIMIT ${compileResultCount(clause.count)}`;
+    case "call":
+      return compileCallClause(clause.query, clause.importAliases, context);
     case "set":
       return `SET ${escapeIdentifier(clause.alias)}.${escapeIdentifier(clause.key)} = ${compileValue(
         clause.value,
@@ -106,6 +108,20 @@ function compileClause(clause: Clause, context: CypherContext): string {
     case "detachDelete":
       return `DETACH DELETE ${clause.aliases.map(escapeIdentifier).join(", ")}`;
   }
+}
+
+function compileCallClause(query: QueryAst, importAliases: string[], context: CypherContext): string {
+  const hasExplicitImportWith = query.clauses[0]?.kind === "with";
+  const importLines =
+    importAliases.length === 0 || hasExplicitImportWith
+      ? []
+      : [`WITH ${importAliases.map(escapeIdentifier).join(", ")}`];
+  const body = [...importLines, ...query.clauses.map((clause) => compileClause(clause, context))]
+    .flatMap((line) => line.split("\n"))
+    .map((line) => `  ${line}`)
+    .join("\n");
+
+  return `CALL {\n${body}\n}`;
 }
 
 function compileMatchClause(

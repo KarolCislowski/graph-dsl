@@ -140,7 +140,7 @@ describe("graph-dsl", () => {
       query()
         .optionalMatch(edge(node("u", "User"), "WROTE", node("p", "Post")))
         .toAst(),
-    ).toThrow("optionalMatch() requires a preceding match() clause to anchor the query.");
+    ).toThrow("optionalMatch() requires a preceding match() or with() clause to anchor the query.");
   });
 
   it("compiles order, skip, and limit result controls to Cypher", () => {
@@ -366,6 +366,76 @@ describe("graph-dsl", () => {
         graph,
       ),
     ).toEqual([{ email: "ada@example.com", postCount: 2 }]);
+  });
+
+  it("compiles call subqueries with imported aliases", () => {
+    const user = node("u", "User");
+    const post = node("p", "Post");
+    const subquery = query()
+      .with(user)
+      .optionalMatch(edge(user, "WROTE", post))
+      .return(count(post, "postCount"));
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .call(subquery, { import: [user] })
+          .return(
+            map("user", {
+              id: elementId(user),
+              email: user.prop("email"),
+              postCount: variable("postCount"),
+            }),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)\nCALL {\n  WITH u\n  OPTIONAL MATCH (u:User)-[:WROTE]->(p:Post)\n  RETURN count(p) AS postCount\n}\nRETURN { id: elementId(u), email: u.email, postCount: postCount } AS user",
+      params: {},
+    });
+  });
+
+  it("executes call subqueries with imported aliases against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { email: "ada@example.com" } },
+        { id: "user-2", labels: ["User"], properties: { email: "grace@example.com" } },
+        { id: "post-1", labels: ["Post"], properties: { title: "Graph DSLs" } },
+        { id: "post-2", labels: ["Post"], properties: { title: "Compilers" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "WROTE", from: "user-1", to: "post-1", properties: {} },
+        { id: "edge-2", label: "WROTE", from: "user-1", to: "post-2", properties: {} },
+      ],
+    };
+    const user = node("u", "User");
+    const post = node("p", "Post");
+    const subquery = query()
+      .with(user)
+      .optionalMatch(edge(user, "WROTE", post))
+      .return(count(post, "postCount"));
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .call(subquery, { import: [user] })
+          .orderBy(user.prop("email"))
+          .return(
+            map("user", {
+              email: user.prop("email"),
+              postCount: variable("postCount"),
+            }),
+          )
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      { user: { email: "ada@example.com", postCount: 2 } },
+      { user: { email: "grace@example.com", postCount: 0 } },
+    ]);
   });
 
   it("executes order, skip, and limit result controls against a memory graph", () => {
