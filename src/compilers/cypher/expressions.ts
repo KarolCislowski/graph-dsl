@@ -52,9 +52,7 @@ export function compileReturnSelection(selection: ReturnSelection, context: Cyph
       return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
     }
     case "aggregate": {
-      const target = `${selection.distinct ? "DISTINCT " : ""}${compileAggregateTarget(selection.target, context)}`;
-      const args = (selection.args ?? []).map((arg) => compileValue(arg, context));
-      const expression = `${selection.fn}(${[target, ...args].join(", ")})`;
+      const expression = compileAggregateCall(selection, context);
       return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
     }
     case "expression":
@@ -92,6 +90,8 @@ export function compileValue(expression: ValueExpression, context: CypherContext
       return compileMapFields(expression.fields, context);
     case "listIndex":
       return `${compileValue(expression.source, context)}[${compileValue(expression.index, context)}]`;
+    case "aggregateValue":
+      return compileAggregateCall(expression, context);
     case "function":
       return `${expression.name}(${expression.args.map((arg) => compileFunctionArgument(arg, context)).join(", ")})`;
     case "arithmetic":
@@ -99,6 +99,21 @@ export function compileValue(expression: ValueExpression, context: CypherContext
     case "case":
       return compileCaseExpression(expression, context);
   }
+}
+
+function compileAggregateCall(
+  expression: {
+    fn: string;
+    target: AggregateTargetExpression;
+    args?: ValueExpression[];
+    distinct: boolean;
+  },
+  context: CypherContext,
+): string {
+  const target = `${expression.distinct ? "DISTINCT " : ""}${compileAggregateTarget(expression.target, context)}`;
+  const args = (expression.args ?? []).map((arg) => compileValue(arg, context));
+
+  return `${expression.fn}(${[target, ...args].join(", ")})`;
 }
 
 function compileMapFields(fields: Record<string, ValueExpression>, context: CypherContext): string {

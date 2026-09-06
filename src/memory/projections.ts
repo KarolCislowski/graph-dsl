@@ -1,6 +1,8 @@
 import type {
   AggregateFunction,
   AggregateTargetExpression,
+  AggregateValueExpression,
+  PredicateExpression,
   Primitive,
   ReturnSelection,
   ValueExpression,
@@ -62,7 +64,7 @@ export function projectWithBindings(
   selections: ReturnSelection[],
   context: MemoryContext,
 ): Binding[] {
-  const rows = selections.some((selection) => selection.kind === "aggregate")
+  const rows = selections.some(selectionContainsAggregate)
     ? projectAggregatedRows(bindings, selections, context)
     : bindings.map((binding) => projectRow(binding, selections, context));
 
@@ -116,8 +118,8 @@ export function projectAggregatedRows(
   selections: ReturnSelection[],
   context: MemoryContext,
 ): MemoryRow[] {
-  const groupSelections = selections.filter((selection) => selection.kind !== "aggregate");
-  const aggregateSelections = selections.filter((selection) => selection.kind === "aggregate");
+  const groupSelections = selections.filter((selection) => !selectionContainsAggregate(selection));
+  const aggregateSelections = selections.filter(selectionContainsAggregate);
   const groups = new Map<string, { values: MemoryRow; bindings: Binding[] }>();
 
   for (const binding of bindings) {
@@ -139,19 +141,70 @@ export function projectAggregatedRows(
   return [...groups.values()].map((group) => ({
     ...group.values,
     ...Object.fromEntries(
-      aggregateSelections.map((selection) => [
-        aggregateSelectionKey(selection),
-        evaluateAggregate(
-          selection.fn,
-          selection.target,
-          selection.args ?? [],
-          selection.distinct,
-          group.bindings,
-          context,
-        ),
-      ]),
+      aggregateSelections.map((selection) =>
+        projectAggregateSelection(selection, group.bindings, context),
+      ),
     ),
   }));
+}
+
+/**
+ * Checks whether projected selections require aggregate grouping.
+ */
+export function selectionsContainAggregate(selections: ReturnSelection[]): boolean {
+  return selections.some(selectionContainsAggregate);
+}
+
+function projectAggregateSelection(
+  selection: ReturnSelection,
+  bindings: Binding[],
+  context: MemoryContext,
+): [string, MemoryValue] {
+  if (selection.kind === "aggregate") {
+    return [
+      aggregateSelectionKey(selection),
+      evaluateAggregate(
+        selection.fn,
+        selection.target,
+        selection.args ?? [],
+        selection.distinct,
+        bindings,
+        context,
+      ),
+    ];
+  }
+
+  const aggregateContext: MemoryContext = {
+    ...context,
+    aggregate: (expression) =>
+      evaluateAggregate(
+        expression.fn,
+        expression.target,
+        expression.args ?? [],
+        expression.distinct,
+        bindings,
+        context,
+      ),
+  };
+  const binding = bindings[0] ?? {};
+
+  if (selection.kind === "expression") {
+    return [selection.as, evaluateValue(selection.expression, binding, aggregateContext)];
+  }
+
+  if (selection.kind === "map") {
+    return [
+      selection.as,
+      Object.fromEntries(
+        Object.entries(selection.fields).map(([key, expression]) => [
+          key,
+          evaluateValue(expression, binding, aggregateContext),
+        ]),
+      ),
+    ];
+  }
+
+  throw new Error(`Unsupported aggregate selection kind "${selection.kind}".`);
 }
 
 function evaluateAggregate(
@@ -298,6 +351,69 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return `${aggregateTargetName(target.left)} ${target.operator} ${aggregateTargetName(target.right)}`;
     case "case":
       return "case";
+    case "aggregateValue":
+      return `${target.fn}(...)`;
+  }
+}
+
+function selectionContainsAggregate(selection: ReturnSelection): boolean {
+  switch (selection.kind) {
+    case "aggregate":
+      return true;
+    case "expression":
+      return expressionContainsAggregate(selection.expression);
+    case "map":
+      return Object.values(selection.fields).some(expressionContainsAggregate);
+    case "alias":
+    case "property":
+      return false;
+  }
+}
+
+function expressionContainsAggregate(expression: ValueExpression): boolean {
+  switch (expression.kind) {
+    case "aggregateValue":
+      return true;
+    case "arithmetic":
+      return expressionContainsAggregate(expression.left) || expressionContainsAggregate(expression.right);
+    case "case":
+      return (
+        expression.branches.some((branch) =>
+          predicateContainsAggregate(branch.when) || expressionContainsAggregate(branch.then),
+        ) ||
+        expressionContainsAggregate(expression.else)
+      );
+    case "function":
+      return expression.args.some(expressionContainsAggregate);
+    case "listIndex":
+      return expressionContainsAggregate(expression.source) || expressionContainsAggregate(expression.index);
+    case "mapProperty":
+      return expressionContainsAggregate(expression.source);
+    case "mapValue":
+      return Object.values(expression.fields).some(expressionContainsAggregate);
+    case "primitive":
+    case "parameter":
+    case "property":
+    case "rowProperty":
+    case "listItem":
+    case "variable":
+    case "aliasRef":
+      return false;
+  }
+}
+
+function predicateContainsAggregate(predicate: PredicateExpression): boolean {
+  switch (predicate.kind) {
+    case "binary":
+      return expressionContainsAggregate(predicate.left) || expressionContainsAggregate(predicate.right);
+    case "logical":
+      return predicate.predicates.some(predicateContainsAggregate);
+    case "not":
+      return predicateContainsAggregate(predicate.predicate);
+    case "null":
+      return expressionContainsAggregate(predicate.expression);
+    case "list":
+      return expressionContainsAggregate(predicate.source) || predicateContainsAggregate(predicate.predicate);
   }
 }
 

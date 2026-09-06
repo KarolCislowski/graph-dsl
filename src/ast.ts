@@ -38,6 +38,7 @@ export type ValueExpression =
   | MapPropertyExpression
   | MapExpression
   | ListIndexExpression
+  | AggregateValueExpression
   | FunctionExpression
   | ArithmeticExpression
   | CaseExpression;
@@ -126,6 +127,17 @@ export type ListIndexExpression = {
   kind: "listIndex";
   source: ValueExpression;
   index: ValueExpression;
+};
+
+/**
+ * Aggregate call used as a value expression, such as `stDev(n.age)`.
+ */
+export type AggregateValueExpression = {
+  kind: "aggregateValue";
+  fn: AggregateFunction;
+  target: AggregateTargetExpression;
+  args?: ValueExpression[];
+  distinct: boolean;
 };
 
 /**

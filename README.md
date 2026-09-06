@@ -1146,6 +1146,28 @@ MATCH (u:User)
 RETURN stDev(u.score) AS scoreStdDev, percentileCont(u.score, $p0) AS p95
 ```
 
+Aggregate value helpers can be embedded inside larger expressions. This is useful for composed aggregate projections such as variance:
+
+```ts
+query()
+  .match(node("u", "User"))
+  .return(
+    expr(
+      mul(stDevValue(prop("u", "score")), stDevValue(prop("u", "score"))),
+      "variance",
+    ),
+  );
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+RETURN (stDev(u.score) * stDev(u.score)) AS variance
+```
+
+Available aggregate value helpers mirror the return-selection helpers: `countValue(...)`, `sumValue(...)`, `avgValue(...)`, `minValue(...)`, `maxValue(...)`, `collectValue(...)`, `stDevValue(...)`, and `percentileContValue(...)`.
+
 Map values can be collected or passed through expression helpers:
 
 ```ts

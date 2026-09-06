@@ -1,4 +1,5 @@
 import type {
+  AggregateValueExpression,
   ParameterValue,
   Primitive,
 } from "../ast.js";
@@ -133,4 +134,5 @@ export type Binding = Record<string, BindingValue> & {
 export type MemoryContext = {
   params: Record<string, ParameterValue>;
   listItems?: Record<string, MemoryValue>;
+  aggregate?: (expression: AggregateValueExpression) => MemoryValue;
 };

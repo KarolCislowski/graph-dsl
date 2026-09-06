@@ -5,6 +5,7 @@ import type {
   ArithmeticOperator,
   BinaryOperator,
   CaseBranch,
+  AggregateValueExpression,
   Direction,
   EdgePattern,
   FunctionName,
@@ -1243,7 +1244,7 @@ export function caseWhen(
  * @returns An aggregate return selection.
  */
 export function count(target?: AggregateTargetInput, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("count", target, as, options);
+  return aggregateSelection(countValue(target, options), as);
 }
 
 /**
@@ -1254,7 +1255,7 @@ export function count(target?: AggregateTargetInput, as?: string, options: Aggre
  * @returns An aggregate return selection.
  */
 export function countAll(as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("count", undefined, as, options);
+  return aggregateSelection(countValue(undefined, options), as);
 }
 
 /**
@@ -1266,7 +1267,7 @@ export function countAll(as?: string, options: AggregateOptions = {}): ReturnSel
  * @returns An aggregate return selection.
  */
 export function sum(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("sum", target, as, options);
+  return aggregateSelection(sumValue(target, options), as);
 }
 
 /**
@@ -1278,7 +1279,7 @@ export function sum(target: ValueExpression, as?: string, options: AggregateOpti
  * @returns An aggregate return selection.
  */
 export function avg(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("avg", target, as, options);
+  return aggregateSelection(avgValue(target, options), as);
 }
 
 /**
@@ -1290,7 +1291,7 @@ export function avg(target: ValueExpression, as?: string, options: AggregateOpti
  * @returns An aggregate return selection.
  */
 export function min(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("min", target, as, options);
+  return aggregateSelection(minValue(target, options), as);
 }
 
 /**
@@ -1302,7 +1303,7 @@ export function min(target: ValueExpression, as?: string, options: AggregateOpti
  * @returns An aggregate return selection.
  */
 export function max(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("max", target, as, options);
+  return aggregateSelection(maxValue(target, options), as);
 }
 
 /**
@@ -1314,7 +1315,7 @@ export function max(target: ValueExpression, as?: string, options: AggregateOpti
  * @returns An aggregate return selection.
  */
 export function collect(target: AggregateTargetInput, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("collect", target, as, options);
+  return aggregateSelection(collectValue(target, options), as);
 }
 
 /**
@@ -1326,7 +1327,7 @@ export function collect(target: AggregateTargetInput, as?: string, options: Aggr
  * @returns An aggregate return selection.
  */
 export function stDev(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
-  return aggregate("stDev", target, as, options);
+  return aggregateSelection(stDevValue(target, options), as);
 }
 
 /**
@@ -1348,7 +1349,104 @@ export function percentileCont(
     throw new Error("percentileCont() expects percentile to be between 0 and 1.");
   }
 
-  return aggregate("percentileCont", target, as, options, [normalizeValueInput(percentile)]);
+  return aggregateSelection(percentileContValue(target, percentile, options), as);
+}
+
+/**
+ * Creates a `count(...)` aggregate value expression.
+ *
+ * @param target - Alias, node/path/edge reference, or value expression to count.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function countValue(target?: AggregateTargetInput, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("count", target, options);
+}
+
+/**
+ * Creates a `sum(...)` aggregate value expression.
+ *
+ * @param target - Numeric value expression to sum.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function sumValue(target: ValueExpression, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("sum", target, options);
+}
+
+/**
+ * Creates an `avg(...)` aggregate value expression.
+ *
+ * @param target - Numeric value expression to average.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function avgValue(target: ValueExpression, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("avg", target, options);
+}
+
+/**
+ * Creates a `min(...)` aggregate value expression.
+ *
+ * @param target - Value expression to aggregate.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function minValue(target: ValueExpression, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("min", target, options);
+}
+
+/**
+ * Creates a `max(...)` aggregate value expression.
+ *
+ * @param target - Value expression to aggregate.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function maxValue(target: ValueExpression, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("max", target, options);
+}
+
+/**
+ * Creates a `collect(...)` aggregate value expression.
+ *
+ * @param target - Alias, node/path/edge reference, or value expression to collect.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function collectValue(target: AggregateTargetInput, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("collect", target, options);
+}
+
+/**
+ * Creates a `stDev(...)` aggregate value expression.
+ *
+ * @param target - Numeric value expression.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function stDevValue(target: ValueExpression, options: AggregateOptions = {}): ValueExpression {
+  return aggregateValue("stDev", target, options);
+}
+
+/**
+ * Creates a `percentileCont(...)` aggregate value expression.
+ *
+ * @param target - Numeric value expression.
+ * @param percentile - Percentile between 0 and 1, or a parameter/expression.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function percentileContValue(
+  target: ValueExpression,
+  percentile: ValueExpression | number,
+  options: AggregateOptions = {},
+): ValueExpression {
+  if (typeof percentile === "number" && (percentile < 0 || percentile > 1)) {
+    throw new Error("percentileContValue() expects percentile to be between 0 and 1.");
+  }
+
+  return aggregateValue("percentileCont", target, options, [normalizeValueInput(percentile)]);
 }
 
 /**
@@ -1712,19 +1810,32 @@ function normalizeValueInput(input: ValueInput): ValueExpression {
   return isValueExpression(input) ? input : value(input);
 }
 
-function aggregate(
+function aggregateValue(
   fn: AggregateFunction,
   target: AggregateTargetInput | undefined,
-  as: string | undefined,
   options: AggregateOptions,
   args: ValueExpression[] = [],
-): ReturnSelection {
+): AggregateValueExpression {
   return {
-    kind: "aggregate",
+    kind: "aggregateValue",
     fn,
     target: targetToAggregateExpression(target),
     ...(args.length === 0 ? {} : { args }),
     distinct: options.distinct === true,
+  };
+}
+
+function aggregateSelection(expression: ValueExpression, as: string | undefined): ReturnSelection {
+  if (expression.kind !== "aggregateValue") {
+    throw new Error("aggregateSelection() expects an aggregate value expression.");
+  }
+
+  return {
+    kind: "aggregate",
+    fn: expression.fn,
+    target: expression.target,
+    ...(expression.args ? { args: expression.args } : {}),
+    distinct: expression.distinct,
     ...(as ? { as } : {}),
   };
 }
@@ -1885,6 +1996,7 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "mapProperty" ||
       value.kind === "mapValue" ||
       value.kind === "listIndex" ||
+      value.kind === "aggregateValue" ||
       value.kind === "function" ||
       value.kind === "arithmetic" ||
       value.kind === "case")

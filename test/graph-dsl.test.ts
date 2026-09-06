@@ -35,6 +35,7 @@ import {
   mapValue,
   max,
   min,
+  mul,
   node,
   neq,
   order,
@@ -53,6 +54,7 @@ import {
   chunk,
   size,
   stDev,
+  stDevValue,
   sum,
   sub,
   toFloat,
@@ -1457,6 +1459,28 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("compiles aggregate value expressions inside larger expressions", () => {
+    const user = node("u", "User");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .return(
+            select(user, "role", "role"),
+            expr(
+              mul(stDevValue(prop(user, "score")), stDevValue(prop(user, "score"))),
+              "variance",
+            ),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query: "MATCH (u:User)\nRETURN u.role AS role, (stDev(u.score) * stDev(u.score)) AS variance",
+      params: {},
+    });
+  });
+
   it("executes aggregate return selections against a memory graph", () => {
     const graph: MemoryGraph = {
       nodes: [
@@ -1533,6 +1557,31 @@ describe("graph-dsl", () => {
     expect(rowResult?.scoreStdDev).toBeCloseTo(12.909944487358056);
     expect(rowResult?.median).toBe(25);
     expect(rowResult?.p95).toBeCloseTo(38.5);
+  });
+
+  it("executes aggregate value expressions against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { role: "admin", score: 1 } },
+        { id: "user-2", labels: ["User"], properties: { role: "admin", score: 3 } },
+        { id: "user-3", labels: ["User"], properties: { role: "reader", score: 5 } },
+      ],
+      edges: [],
+    };
+    const user = node("u", "User");
+    const variance = mul(stDevValue(prop(user, "score")), stDevValue(prop(user, "score")));
+    const rows = executeMemory(
+      query()
+        .match(user)
+        .return(select(user, "role", "role"), expr(variance, "variance"))
+        .toAst(),
+      graph,
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.role).toBe("admin");
+    expect(rows[0]?.variance).toBeCloseTo(2);
+    expect(rows[1]).toEqual({ role: "reader", variance: 0 });
   });
 
   it("executes distinct aggregates against a memory graph", () => {

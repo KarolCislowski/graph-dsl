@@ -189,6 +189,8 @@ export function evaluateValue(
 
       return null;
     }
+    case "aggregateValue":
+      return context.aggregate?.(expression) ?? null;
     case "function":
       return evaluateFunction(expression.name, expression.args, binding, context);
     case "arithmetic":

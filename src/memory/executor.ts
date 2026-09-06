@@ -24,6 +24,7 @@ import {
   projectRow,
   projectWithBindings,
   rowToBinding,
+  selectionsContainAggregate,
 } from "./projections.js";
 import type {
   Binding,
@@ -61,7 +62,7 @@ export function executeMemory(
     return execution.bindings;
   }
 
-  if (execution.selections.some((selection) => selection.kind === "aggregate")) {
+  if (selectionsContainAggregate(execution.selections)) {
     return projectAggregatedRows(execution.bindings, execution.selections, context);
   }
 
@@ -94,7 +95,7 @@ function executeMemoryFromBindings(
     return execution.bindings;
   }
 
-  return execution.selections.some((selection) => selection.kind === "aggregate")
+  return selectionsContainAggregate(execution.selections)
     ? projectAggregatedRows(execution.bindings, execution.selections, context).map(rowToBinding)
     : execution.bindings.map((binding) => rowToBinding(projectRow(binding, execution.selections!, context)));
 }
