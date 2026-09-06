@@ -15,6 +15,9 @@ import {
 } from "./patterns.js";
 import type { CypherContext } from "./types.js";
 
+/**
+ * Compiles a single query clause to Cypher text.
+ */
 export function compileClause(clause: Clause, context: CypherContext): string {
   switch (clause.kind) {
     case "unwind":

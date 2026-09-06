@@ -8,6 +8,9 @@ import type {
 import { escapeIdentifier } from "./identifiers.js";
 import type { CypherContext } from "./types.js";
 
+/**
+ * Compiles a predicate expression to a Cypher boolean expression.
+ */
 export function compilePredicate(predicate: PredicateExpression, context: CypherContext): string {
   switch (predicate.kind) {
     case "binary": {
@@ -35,6 +38,9 @@ export function compilePredicate(predicate: PredicateExpression, context: Cypher
   }
 }
 
+/**
+ * Compiles a RETURN/WITH selection to Cypher projection text.
+ */
 export function compileReturnSelection(selection: ReturnSelection, context: CypherContext): string {
   switch (selection.kind) {
     case "alias":
@@ -56,6 +62,9 @@ export function compileReturnSelection(selection: ReturnSelection, context: Cyph
   }
 }
 
+/**
+ * Compiles a value expression to Cypher, registering literal parameters as needed.
+ */
 export function compileValue(expression: ValueExpression, context: CypherContext): string {
   switch (expression.kind) {
     case "primitive": {

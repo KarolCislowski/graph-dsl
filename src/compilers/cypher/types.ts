@@ -13,6 +13,9 @@ export type CypherCompileOptions = {
   params?: Record<string, ParameterValue>;
 };
 
+/**
+ * Mutable state used while compiling one Cypher query.
+ */
 export type CypherContext = {
   params: Record<string, ParameterValue>;
   literalIndex: number;

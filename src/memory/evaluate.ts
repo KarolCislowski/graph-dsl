@@ -20,6 +20,9 @@ import type {
   MemoryValue,
 } from "./types.js";
 
+/**
+ * Evaluates a predicate against the current memory binding.
+ */
 export function evaluatePredicate(
   predicate: PredicateExpression,
   binding: Binding,
@@ -68,6 +71,9 @@ export function evaluatePredicate(
   }
 }
 
+/**
+ * Evaluates a binary predicate operator using memory executor comparison semantics.
+ */
 export function evaluateBinary(operator: string, left: MemoryValue, right: MemoryValue): boolean {
   switch (operator) {
     case "=":
@@ -91,6 +97,9 @@ export function evaluateBinary(operator: string, left: MemoryValue, right: Memor
   }
 }
 
+/**
+ * Evaluates a value expression against the current memory binding.
+ */
 export function evaluateValue(
   expression: ValueExpression,
   binding: Binding,
@@ -150,6 +159,9 @@ export function evaluateValue(
   }
 }
 
+/**
+ * Evaluates an expression as an UNWIND source, returning row objects only.
+ */
 export function evaluateList(
   expression: ValueExpression,
   binding: Binding,
@@ -164,6 +176,9 @@ export function evaluateList(
   return isRowObjectArray(value) ? value : [];
 }
 
+/**
+ * Evaluates pattern property expressions into primitive property values.
+ */
 export function evaluateProperties(
   properties: Record<string, ValueExpression>,
   binding: Binding,
@@ -174,6 +189,9 @@ export function evaluateProperties(
   );
 }
 
+/**
+ * Evaluates SKIP/LIMIT counts, accepting either a literal integer or an integer parameter.
+ */
 export function evaluateResultCount(
   count: number | { kind: "parameter"; name: string },
   context: MemoryContext,
@@ -191,6 +209,9 @@ export function evaluateResultCount(
   return value;
 }
 
+/**
+ * Compares nullable primitive-ish values for ORDER BY in the memory executor.
+ */
 export function compareOptionalPrimitives(left: MemoryValue, right: MemoryValue): number {
   if (left === right) {
     return 0;

@@ -110,14 +110,26 @@ export interface MemoryProjectionObject {
   [key: string]: MemoryValue;
 }
 
+/**
+ * Value bound to an alias while executing a query.
+ */
 export type BindingValue = MemoryValue;
 
+/**
+ * Internal marker used to decide whether ON CREATE/ON MATCH SET clauses should run.
+ */
 export const mergeCreatedState = Symbol("mergeCreatedState");
 
+/**
+ * Alias map carried through the execution pipeline.
+ */
 export type Binding = Record<string, BindingValue> & {
   [mergeCreatedState]?: boolean;
 };
 
+/**
+ * Runtime context shared by memory evaluator modules.
+ */
 export type MemoryContext = {
   params: Record<string, ParameterValue>;
   listItems?: Record<string, MemoryValue>;

@@ -10,6 +10,9 @@ import { compileValue } from "./expressions.js";
 import { escapeIdentifier } from "./identifiers.js";
 import type { CypherContext } from "./types.js";
 
+/**
+ * Compiles MATCH or OPTIONAL MATCH patterns, including path scope predicates.
+ */
 export function compileMatchClause(
   patterns: Pattern[],
   context: CypherContext,
@@ -25,6 +28,9 @@ export function compileMatchClause(
   return `${match}\nWHERE ${pathScopePredicates.join(" AND ")}\nWITH *`;
 }
 
+/**
+ * Compiles an edge pattern whose endpoint aliases are already bound.
+ */
 export function compileBoundEdgePath(edge: EdgePattern, context: CypherContext): string {
   const edgeText = compileEdge(edge, context);
 
@@ -38,6 +44,9 @@ export function compileBoundEdgePath(edge: EdgePattern, context: CypherContext):
   }
 }
 
+/**
+ * Compiles a mixed list of node, edge, and path patterns into Cypher pattern text.
+ */
 export function compilePatterns(patterns: Pattern[], context: CypherContext): string {
   return groupPatterns(patterns).map((group) => compilePatternGroup(group, context)).join(", ");
 }

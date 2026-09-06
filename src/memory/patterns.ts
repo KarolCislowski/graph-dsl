@@ -29,6 +29,9 @@ import type {
 } from "./types.js";
 import { mergeCreatedState } from "./types.js";
 
+/**
+ * Expands bindings by matching each pattern in sequence.
+ */
 export function matchPatterns(
   bindings: Binding[],
   patterns: Pattern[],
@@ -42,6 +45,9 @@ export function matchPatterns(
   );
 }
 
+/**
+ * Matches patterns like MATCH, but preserves the input binding when no match exists.
+ */
 export function optionalMatchPatterns(
   bindings: Binding[],
   patterns: Pattern[],
@@ -54,6 +60,9 @@ export function optionalMatchPatterns(
   });
 }
 
+/**
+ * Creates node/edge patterns for every input binding.
+ */
 export function createPatterns(
   bindings: Binding[],
   patterns: Pattern[],
@@ -67,6 +76,9 @@ export function createPatterns(
   );
 }
 
+/**
+ * Merges node/edge patterns for every input binding.
+ */
 export function mergePatterns(
   bindings: Binding[],
   patterns: Pattern[],
@@ -80,6 +92,9 @@ export function mergePatterns(
   );
 }
 
+/**
+ * Creates relationships between already-bound endpoint nodes.
+ */
 export function createEdges(
   bindings: Binding[],
   edges: EdgePattern[],
@@ -93,6 +108,9 @@ export function createEdges(
   );
 }
 
+/**
+ * Merges relationships between already-bound endpoint nodes.
+ */
 export function mergeEdges(
   bindings: Binding[],
   edges: EdgePattern[],
@@ -106,6 +124,9 @@ export function mergeEdges(
   );
 }
 
+/**
+ * Sets a primitive property on a bound node or edge.
+ */
 export function setProperty(
   binding: Binding,
   alias: string,
@@ -123,6 +144,9 @@ export function setProperty(
   return binding;
 }
 
+/**
+ * Deletes bound nodes or edges, optionally detaching connected relationships.
+ */
 export function deleteAliases(
   bindings: Binding[],
   aliases: string[],

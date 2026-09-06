@@ -23,10 +23,16 @@ import type {
   MemoryValue,
 } from "./types.js";
 
+/**
+ * Converts a projected memory row back into an execution binding.
+ */
 export function rowToBinding(row: MemoryRow): Binding {
   return { ...row };
 }
 
+/**
+ * Sorts bindings using ORDER BY expressions and directions.
+ */
 export function orderBindings(
   bindings: Binding[],
   expressions: Array<{ expression: ValueExpression; direction: "asc" | "desc" }>,
@@ -48,6 +54,9 @@ export function orderBindings(
   });
 }
 
+/**
+ * Applies a WITH projection and returns the next pipeline-stage bindings.
+ */
 export function projectWithBindings(
   bindings: Binding[],
   selections: ReturnSelection[],
@@ -60,6 +69,9 @@ export function projectWithBindings(
   return rows.map((row) => ({ ...row }));
 }
 
+/**
+ * Projects a single binding into a returned memory row.
+ */
 export function projectRow(binding: Binding, selections: ReturnSelection[], context: MemoryContext): MemoryRow {
   return Object.fromEntries(
     selections.map((selection) => {
@@ -96,6 +108,9 @@ export function projectRow(binding: Binding, selections: ReturnSelection[], cont
   );
 }
 
+/**
+ * Projects grouped aggregate rows using Cypher-like grouping semantics.
+ */
 export function projectAggregatedRows(
   bindings: Binding[],
   selections: ReturnSelection[],
