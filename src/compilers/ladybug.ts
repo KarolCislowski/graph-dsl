@@ -7,6 +7,7 @@ import type {
   PathPattern,
   Pattern,
   QueryAst,
+  RelationshipLabel,
   TraversalEdgePattern,
 } from "../ast.js";
 import { compileCypher } from "./cypher.js";
@@ -141,19 +142,27 @@ function validateNode(
 }
 
 function validateEdge(edge: EdgePattern): void {
-  if (!edge.label) {
+  if (relationshipLabels(edge.label).length === 0) {
     throw new Error("Ladybug compiler MVP requires explicit relationship labels.");
   }
 }
 
 function validateTraversalEdge(edge: TraversalEdgePattern): void {
-  if (!edge.label) {
+  if (relationshipLabels(edge.label).length === 0) {
     throw new Error("Ladybug compiler MVP requires explicit relationship labels.");
   }
 
   if (edge.maxHops === undefined) {
     throw new Error(
-      `Ladybug compiler MVP requires bounded traversal patterns; "${edge.label}" is missing maxHops.`,
+      `Ladybug compiler MVP requires bounded traversal patterns; "${relationshipLabelName(edge.label)}" is missing maxHops.`,
     );
   }
+}
+
+function relationshipLabels(label: RelationshipLabel): string[] {
+  return (Array.isArray(label) ? label : [label]).filter(Boolean);
+}
+
+function relationshipLabelName(label: RelationshipLabel): string {
+  return relationshipLabels(label).join("|");
 }

@@ -206,12 +206,17 @@ export type NodePattern = {
 };
 
 /**
+ * Relationship type label accepted by edge and traversal patterns.
+ */
+export type RelationshipLabel = string | string[];
+
+/**
  * Backend-neutral edge pattern connecting two node aliases.
  */
 export type EdgePattern = {
   kind: "edge";
   alias?: string;
-  label: string;
+  label: RelationshipLabel;
   direction: Direction;
   from: string;
   to: string;
@@ -224,7 +229,7 @@ export type EdgePattern = {
 export type TraversalEdgePattern = {
   kind: "traversalEdge";
   alias?: string;
-  label: string;
+  label: RelationshipLabel;
   direction: Direction;
   properties: Record<string, ValueExpression>;
   minHops: number;

@@ -10,6 +10,7 @@ import type {
   Pattern,
   PredicateExpression,
   QueryAst,
+  RelationshipLabel,
   ReturnSelection,
   ValueExpression,
 } from "../ast.js";
@@ -287,7 +288,7 @@ function compileNode(node: NodePattern, context: CypherContext): string {
 
 function compileEdge(edge: EdgePattern, context: CypherContext): string {
   const alias = edge.alias ? escapeIdentifier(edge.alias) : "";
-  const label = edge.label ? `:${escapeIdentifier(edge.label)}` : "";
+  const label = compileRelationshipLabel(edge.label);
   const properties = compileProperties(edge.properties, context);
 
   return `[${alias}${label}${properties}]`;
@@ -295,11 +296,18 @@ function compileEdge(edge: EdgePattern, context: CypherContext): string {
 
 function compileTraversalEdge(path: PathPattern, context: CypherContext): string {
   const alias = path.edge.alias ? escapeIdentifier(path.edge.alias) : "";
-  const label = path.edge.label ? `:${escapeIdentifier(path.edge.label)}` : "";
+  const label = compileRelationshipLabel(path.edge.label);
   const range = compileHopRange(path.edge.minHops, path.edge.maxHops);
   const properties = compileProperties(path.edge.properties, context);
 
   return `[${alias}${label}${range}${properties}]`;
+}
+
+function compileRelationshipLabel(label: RelationshipLabel): string {
+  const labels = Array.isArray(label) ? label : [label];
+  const body = labels.filter(Boolean).map(escapeIdentifier).join("|");
+
+  return body ? `:${body}` : "";
 }
 
 function compileHopRange(minHops: number, maxHops: number | undefined): string {

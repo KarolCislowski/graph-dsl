@@ -17,6 +17,7 @@ import type {
   Primitive,
   PrimitiveList,
   QueryAst,
+  RelationshipLabel,
   ReturnSelection,
   ValueExpression,
 } from "./ast.js";
@@ -147,7 +148,7 @@ export class EdgeRef {
    * Creates an edge reference.
    *
    * @param from - Source-side node reference.
-   * @param label - Relationship/edge label.
+   * @param label - Relationship/edge label or list of labels.
    * @param to - Target-side node reference.
    * @param direction - Direction relative to `from` and `to`.
    * @param alias - Optional edge alias.
@@ -155,7 +156,7 @@ export class EdgeRef {
    */
   constructor(
     readonly from: NodeRef,
-    readonly label: string,
+    readonly label: RelationshipLabel,
     readonly to: NodeRef,
     readonly direction: Direction = "out",
     readonly alias?: string,
@@ -217,7 +218,7 @@ export class PathRef {
    * Creates a path reference.
    *
    * @param from - Start node reference.
-   * @param label - Relationship/edge label to traverse.
+   * @param label - Relationship/edge label or list of labels to traverse.
    * @param to - End node reference.
    * @param direction - Direction relative to `from` and `to`.
    * @param minHops - Minimum number of relationships in the path.
@@ -228,7 +229,7 @@ export class PathRef {
    */
   constructor(
     readonly from: NodeRef,
-    readonly label: string,
+    readonly label: RelationshipLabel,
     readonly to: NodeRef,
     readonly direction: Direction = "out",
     readonly minHops: number = 1,
@@ -825,12 +826,12 @@ export function node(alias: string, ...labels: string[]): NodeRef {
  * Creates an edge reference between two node references.
  *
  * @param from - Source-side node reference.
- * @param label - Relationship/edge label.
+ * @param label - Relationship/edge label or list of labels.
  * @param to - Target-side node reference.
  * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
  * @returns An edge reference.
  */
-export function edge(from: NodeRef, label: string, to: NodeRef, direction: Direction = "out"): EdgeRef {
+export function edge(from: NodeRef, label: RelationshipLabel, to: NodeRef, direction: Direction = "out"): EdgeRef {
   return new EdgeRef(from, label, to, direction);
 }
 
@@ -841,12 +842,12 @@ export function edge(from: NodeRef, label: string, to: NodeRef, direction: Direc
  * to set a bounded or unbounded range.
  *
  * @param from - Start node reference.
- * @param label - Relationship/edge label to traverse.
+ * @param label - Relationship/edge label or list of labels to traverse.
  * @param to - End node reference.
  * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
  * @returns A path reference.
  */
-export function traverse(from: NodeRef, label: string, to: NodeRef, direction: Direction = "out"): PathRef {
+export function traverse(from: NodeRef, label: RelationshipLabel, to: NodeRef, direction: Direction = "out"): PathRef {
   return new PathRef(from, label, to, direction);
 }
 
@@ -857,12 +858,12 @@ export function traverse(from: NodeRef, label: string, to: NodeRef, direction: D
  *
  * @param alias - Alias used to return or inspect the whole path.
  * @param from - Start node reference.
- * @param label - Relationship/edge label to traverse.
+ * @param label - Relationship/edge label or list of labels to traverse.
  * @param to - End node reference.
  * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
  * @returns An aliased path reference.
  */
-export function path(alias: string, from: NodeRef, label: string, to: NodeRef, direction: Direction = "out"): PathRef {
+export function path(alias: string, from: NodeRef, label: RelationshipLabel, to: NodeRef, direction: Direction = "out"): PathRef {
   return traverse(from, label, to, direction).as(alias);
 }
 
@@ -1425,7 +1426,7 @@ function applyScope(pattern: Pattern, scopeProperties: ScopeProperties): Pattern
         ...pattern.edge,
         properties: applyScopeToProperties(
           "traversal edge",
-          pattern.edge.alias ?? pattern.edge.label,
+          pattern.edge.alias ?? relationshipLabelName(pattern.edge.label),
           pattern.edge.properties,
           scopeProperties,
         ),
@@ -1454,8 +1455,12 @@ function applyScopeToEdge(edge: EdgePattern, scopeProperties: ScopeProperties): 
 
   return {
     ...edge,
-    properties: applyScopeToProperties("Edge", edge.alias ?? edge.label, edge.properties, scopeProperties),
+    properties: applyScopeToProperties("Edge", edge.alias ?? relationshipLabelName(edge.label), edge.properties, scopeProperties),
   };
+}
+
+function relationshipLabelName(label: RelationshipLabel): string {
+  return Array.isArray(label) ? label.join("|") : label;
 }
 
 function applyScopeToProperties(

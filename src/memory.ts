@@ -10,6 +10,7 @@ import type {
   PredicateExpression,
   Primitive,
   QueryAst,
+  RelationshipLabel,
   ReturnSelection,
   ValueExpression,
 } from "./ast.js";
@@ -483,10 +484,11 @@ function createPattern(
   if (!from || !to || !isNode(from) || !isNode(to)) {
     throw new Error(`Cannot create edge "${pattern.label}" without bound from/to nodes.`);
   }
+  const label = singleRelationshipLabel(pattern.label, "create");
 
   const edge: MemoryEdge = {
     id: nextId("edge", graph.edges),
-    label: pattern.label,
+    label,
     from: pattern.direction === "in" ? to.id : from.id,
     to: pattern.direction === "in" ? from.id : to.id,
     properties: evaluateProperties(pattern.properties, binding, context),
@@ -554,10 +556,11 @@ function createEdge(
   if (!from || !to || !isNode(from) || !isNode(to)) {
     throw new Error(`Cannot create edge "${pattern.label}" without bound from/to nodes.`);
   }
+  const label = singleRelationshipLabel(pattern.label, "createEdge");
 
   const edge: MemoryEdge = {
     id: nextId("edge", graph.edges),
-    label: pattern.label,
+    label,
     from: pattern.direction === "in" ? to.id : from.id,
     to: pattern.direction === "in" ? from.id : to.id,
     properties: evaluateProperties(pattern.properties, binding, context),
@@ -592,7 +595,7 @@ function matchesEdge(
   binding: Binding,
   context: MemoryContext,
 ): boolean {
-  if (edge.label !== pattern.label) {
+  if (!relationshipLabelMatches(pattern.label, edge.label)) {
     return false;
   }
 
@@ -616,6 +619,20 @@ function matchesEdge(
       edge.properties[key] === evaluateValue(expression, binding, context),
     )
   );
+}
+
+function relationshipLabelMatches(patternLabel: RelationshipLabel, edgeLabel: string): boolean {
+  return Array.isArray(patternLabel)
+    ? patternLabel.includes(edgeLabel)
+    : patternLabel === "" || patternLabel === edgeLabel;
+}
+
+function singleRelationshipLabel(label: RelationshipLabel, method: "create" | "createEdge"): string {
+  if (!Array.isArray(label)) {
+    return label;
+  }
+
+  throw new Error(`${method}() cannot create a relationship with multiple possible labels.`);
 }
 
 function matchPath(
@@ -740,7 +757,7 @@ function matchesScopedProperties(
 
 function nextTraversalSteps(state: PathSearchState): Array<{ edge: MemoryEdge; node: MemoryNode }> {
   return state.graph.edges.flatMap((edge) => {
-    if (state.usedEdgeIds.has(edge.id) || edge.label !== state.pattern.edge.label) {
+    if (state.usedEdgeIds.has(edge.id) || !relationshipLabelMatches(state.pattern.edge.label, edge.label)) {
       return [];
     }
 

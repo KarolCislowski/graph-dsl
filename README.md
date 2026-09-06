@@ -155,6 +155,18 @@ Edges can also be aliased, which is useful for returning or deleting them:
 const relation = edge(user, "FOLLOWS", friend).as("r");
 ```
 
+For reads, an edge can match any of several relationship types:
+
+```ts
+edge(user, ["WROTE", "EDITED"], post).as("r");
+```
+
+This compiles to:
+
+```cypher
+(user)-[r:WROTE|EDITED]->(post)
+```
+
 ### Paths And Traversals
 
 Use `traverse(...)` when you want to match a variable-length relationship chain instead of one fixed edge:
@@ -170,6 +182,12 @@ This compiles to a variable-length relationship:
 
 ```cypher
 (source:Person)-[:KNOWS*1..3]->(target:Person)
+```
+
+Traversals can also match several relationship types:
+
+```ts
+traverse(source, ["KNOWS", "FOLLOWS"], target).hops(1, 3);
 ```
 
 Use `path(alias, ...)` when you want to name and return the whole path:

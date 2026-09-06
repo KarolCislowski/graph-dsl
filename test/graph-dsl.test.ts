@@ -116,6 +116,77 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("compiles multi-type relationship matches to Cypher", () => {
+    const source = node("source");
+    const target = node("target");
+
+    expect(
+      compileCypher(
+        query()
+          .match(edge(source, ["TYPE_A", "TYPE_B"], target).as("relationship"))
+          .return("relationship")
+          .toAst(),
+      ),
+    ).toEqual({
+      query: "MATCH (source)-[relationship:TYPE_A|TYPE_B]->(target)\nRETURN relationship",
+      params: {},
+    });
+  });
+
+  it("matches multi-type relationships in the memory executor", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["Node"], properties: { id: "source" } },
+        { id: "node-2", labels: ["Node"], properties: { id: "target-a" } },
+        { id: "node-3", labels: ["Node"], properties: { id: "target-b" } },
+        { id: "node-4", labels: ["Node"], properties: { id: "target-c" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "TYPE_A", from: "node-1", to: "node-2", properties: {} },
+        { id: "edge-2", label: "TYPE_B", from: "node-1", to: "node-3", properties: {} },
+        { id: "edge-3", label: "TYPE_C", from: "node-1", to: "node-4", properties: {} },
+      ],
+    };
+    const source = node("source", "Node").props({ id: "source" });
+    const target = node("target", "Node");
+
+    expect(
+      executeMemory(
+        query()
+          .match(edge(source, ["TYPE_A", "TYPE_B"], target).as("relationship"))
+          .orderBy(target.prop("id"))
+          .return(select(target, "id", "targetId"), expr(relationshipType("relationship"), "relationshipType"))
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      { targetId: "target-a", relationshipType: "TYPE_A" },
+      { targetId: "target-b", relationshipType: "TYPE_B" },
+    ]);
+  });
+
+  it("does not create multi-type relationships in the memory executor", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["Node"], properties: {} },
+        { id: "node-2", labels: ["Node"], properties: {} },
+      ],
+      edges: [],
+    };
+    const source = node("source", "Node");
+    const target = node("target", "Node");
+
+    expect(() =>
+      executeMemory(
+        query()
+          .match(source, target)
+          .createEdge(edge(source, ["TYPE_A", "TYPE_B"], target))
+          .toAst(),
+        graph,
+      ),
+    ).toThrow("createEdge() cannot create a relationship with multiple possible labels.");
+  });
+
   it("preserves rows without optional matches in the memory executor", () => {
     const graph: MemoryGraph = {
       nodes: [
@@ -1037,6 +1108,18 @@ describe("graph-dsl", () => {
       params: {
         p0: true,
       },
+    });
+
+    expect(
+      compileCypher(
+        query()
+          .match(traverse(source, ["KNOWS", "FOLLOWS"], target).hops(1, 2))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (source:Person { id: $sourceId })-[:KNOWS|FOLLOWS*1..2]->(target:Person { id: $targetId })",
+      params: {},
     });
   });
 
