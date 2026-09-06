@@ -1282,7 +1282,14 @@ function projectAggregatedRows(
     ...Object.fromEntries(
       aggregateSelections.map((selection) => [
         aggregateSelectionKey(selection),
-        evaluateAggregate(selection.fn, selection.target, selection.distinct, group.bindings, context),
+        evaluateAggregate(
+          selection.fn,
+          selection.target,
+          selection.args ?? [],
+          selection.distinct,
+          group.bindings,
+          context,
+        ),
       ]),
     ),
   }));
@@ -1291,6 +1298,7 @@ function projectAggregatedRows(
 function evaluateAggregate(
   fn: AggregateFunction,
   target: AggregateTargetExpression,
+  args: ValueExpression[],
   distinct: boolean,
   bindings: Binding[],
   context: MemoryContext,
@@ -1313,7 +1321,53 @@ function evaluateAggregate(
       return comparableValues(aggregateInput).sort(comparePrimitiveValues).at(-1) ?? null;
     case "collect":
       return aggregateInput.filter((value) => value !== null);
+    case "stDev":
+      return sampleStandardDeviation(numericValues(aggregateInput));
+    case "percentileCont":
+      return continuousPercentile(
+        numericValues(aggregateInput),
+        primitiveOrNull(args[0] ? evaluateValue(args[0], bindings[0] ?? {}, context) : null),
+      );
   }
+}
+
+function sampleStandardDeviation(values: number[]): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  if (values.length === 1) {
+    return 0;
+  }
+
+  const mean = values.reduce((total, value) => total + value, 0) / values.length;
+  const variance =
+    values.reduce((total, value) => total + (value - mean) ** 2, 0) / (values.length - 1);
+
+  return Math.sqrt(variance);
+}
+
+function continuousPercentile(values: number[], percentile: Primitive): number | null {
+  if (values.length === 0 || typeof percentile !== "number" || percentile < 0 || percentile > 1) {
+    return null;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = percentile * (sorted.length - 1);
+  const lowerIndex = Math.floor(index);
+  const upperIndex = Math.ceil(index);
+  const lower = sorted[lowerIndex];
+  const upper = sorted[upperIndex];
+
+  if (lower === undefined || upper === undefined) {
+    return null;
+  }
+
+  if (lowerIndex === upperIndex) {
+    return lower;
+  }
+
+  return lower + (upper - lower) * (index - lowerIndex);
 }
 
 function aggregateValues(
@@ -1351,7 +1405,8 @@ function aggregateSelectionKey(selection: Extract<ReturnSelection, { kind: "aggr
   }
 
   const target = aggregateTargetName(selection.target);
-  return `${selection.fn}(${selection.distinct ? "distinct " : ""}${target})`;
+  const args = (selection.args ?? []).map(aggregateTargetName);
+  return `${selection.fn}(${[`${selection.distinct ? "distinct " : ""}${target}`, ...args].join(", ")})`;
 }
 
 function aggregateTargetName(target: AggregateTargetExpression): string {

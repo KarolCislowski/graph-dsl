@@ -1223,6 +1223,40 @@ export function collect(target: AggregateTargetInput, as?: string, options: Aggr
 }
 
 /**
+ * Creates a `stDev(...)` aggregate return selection.
+ *
+ * @param target - Numeric value expression.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function stDev(target: ValueExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregate("stDev", target, as, options);
+}
+
+/**
+ * Creates a `percentileCont(...)` aggregate return selection.
+ *
+ * @param target - Numeric value expression.
+ * @param percentile - Percentile between 0 and 1, or a parameter/expression.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function percentileCont(
+  target: ValueExpression,
+  percentile: ValueExpression | number,
+  as?: string,
+  options: AggregateOptions = {},
+): ReturnSelection {
+  if (typeof percentile === "number" && (percentile < 0 || percentile > 1)) {
+    throw new Error("percentileCont() expects percentile to be between 0 and 1.");
+  }
+
+  return aggregate("percentileCont", target, as, options, [normalizeValueInput(percentile)]);
+}
+
+/**
  * Creates an equality predicate.
  *
  * @param left - Left value expression.
@@ -1506,11 +1540,13 @@ function aggregate(
   target: AggregateTargetInput | undefined,
   as: string | undefined,
   options: AggregateOptions,
+  args: ValueExpression[] = [],
 ): ReturnSelection {
   return {
     kind: "aggregate",
     fn,
     target: targetToAggregateExpression(target),
+    ...(args.length === 0 ? {} : { args }),
     distinct: options.distinct === true,
     ...(as ? { as } : {}),
   };

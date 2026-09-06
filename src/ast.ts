@@ -345,6 +345,7 @@ export type ReturnSelection =
       kind: "aggregate";
       fn: AggregateFunction;
       target: AggregateTargetExpression;
+      args?: ValueExpression[];
       distinct: boolean;
       as?: string;
     }
@@ -362,7 +363,7 @@ export type ReturnSelection =
 /**
  * Supported aggregate functions.
  */
-export type AggregateFunction = "count" | "sum" | "avg" | "min" | "max" | "collect";
+export type AggregateFunction = "count" | "sum" | "avg" | "min" | "max" | "collect" | "stDev" | "percentileCont";
 
 /**
  * Value accepted as an aggregate input.

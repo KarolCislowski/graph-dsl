@@ -1092,6 +1092,8 @@ Supported aggregate helpers:
 | `min(expression, as)` | Returns the smallest value. | `min(prop("u", "age"), "youngest")` |
 | `max(expression, as)` | Returns the largest value. | `max(prop("u", "age"), "oldest")` |
 | `collect(target, as)` | Collects values into a list. | `collect(prop("u", "email"), "emails")` |
+| `stDev(expression, as)` | Returns sample standard deviation. | `stDev(prop("u", "score"), "scoreStdDev")` |
+| `percentileCont(expression, percentile, as)` | Returns a continuous percentile with interpolation. | `percentileCont(prop("u", "score"), 0.95, "p95")` |
 
 Every aggregate helper accepts `{ distinct: true }` as the last argument:
 
@@ -1106,6 +1108,24 @@ Cypher output:
 ```cypher
 MATCH (u:User)
 RETURN count(DISTINCT u.role) AS roles
+```
+
+Neo4j statistical aggregates are also available:
+
+```ts
+query()
+  .match(node("u", "User"))
+  .return(
+    stDev(prop("u", "score"), "scoreStdDev"),
+    percentileCont(prop("u", "score"), 0.95, "p95"),
+  );
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+RETURN stDev(u.score) AS scoreStdDev, percentileCont(u.score, $p0) AS p95
 ```
 
 ## Predicates

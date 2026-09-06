@@ -362,10 +362,9 @@ function compileReturnSelection(selection: ReturnSelection, context: CypherConte
       return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
     }
     case "aggregate": {
-      const expression = `${selection.fn}(${selection.distinct ? "DISTINCT " : ""}${compileAggregateTarget(
-        selection.target,
-        context,
-      )})`;
+      const target = `${selection.distinct ? "DISTINCT " : ""}${compileAggregateTarget(selection.target, context)}`;
+      const args = (selection.args ?? []).map((arg) => compileValue(arg, context));
+      const expression = `${selection.fn}(${[target, ...args].join(", ")})`;
       return selection.as ? `${expression} AS ${escapeIdentifier(selection.as)}` : expression;
     }
     case "expression":

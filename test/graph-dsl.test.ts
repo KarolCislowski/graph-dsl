@@ -28,6 +28,7 @@ import {
   order,
   param,
   path,
+  percentileCont,
   prop,
   properties,
   query,
@@ -37,6 +38,7 @@ import {
   runParamBatches,
   select,
   chunk,
+  stDev,
   sum,
   sub,
   toFloat,
@@ -1171,6 +1173,27 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("compiles Neo4j statistical aggregate return selections to Cypher", () => {
+    const user = node("u", "User");
+
+    expect(
+      compileCypher(
+        query()
+          .match(user)
+          .return(
+            stDev(prop(user, "score"), "scoreStdDev"),
+            percentileCont(prop(user, "score"), 0.95, "p95"),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query: "MATCH (u:User)\nRETURN stDev(u.score) AS scoreStdDev, percentileCont(u.score, $p0) AS p95",
+      params: {
+        p0: 0.95,
+      },
+    });
+  });
+
   it("executes aggregate return selections against a memory graph", () => {
     const graph: MemoryGraph = {
       nodes: [
@@ -1218,6 +1241,35 @@ describe("graph-dsl", () => {
         scores: [5],
       },
     ]);
+  });
+
+  it("executes Neo4j statistical aggregates against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { score: 10 } },
+        { id: "user-2", labels: ["User"], properties: { score: 20 } },
+        { id: "user-3", labels: ["User"], properties: { score: 30 } },
+        { id: "user-4", labels: ["User"], properties: { score: 40 } },
+      ],
+      edges: [],
+    };
+
+    const [rowResult] = executeMemory(
+      query()
+        .match(node("u", "User"))
+        .return(
+          stDev(prop("u", "score"), "scoreStdDev"),
+          percentileCont(prop("u", "score"), 0.5, "median"),
+          percentileCont(prop("u", "score"), param("p"), "p95"),
+        )
+        .toAst(),
+      graph,
+      { params: { p: 0.95 } },
+    );
+
+    expect(rowResult?.scoreStdDev).toBeCloseTo(12.909944487358056);
+    expect(rowResult?.median).toBe(25);
+    expect(rowResult?.p95).toBeCloseTo(38.5);
   });
 
   it("executes distinct aggregates against a memory graph", () => {
