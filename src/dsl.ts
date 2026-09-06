@@ -2,7 +2,9 @@ import type {
   AggregateFunction,
   AggregateTargetExpression,
   AliasExpression,
+  ArithmeticOperator,
   BinaryOperator,
+  CaseBranch,
   Direction,
   EdgePattern,
   FunctionName,
@@ -34,6 +36,7 @@ export type AggregateOptions = {
 type AggregateTargetInput = NodeRef | EdgeRef | PathRef | string | ValueExpression;
 type AliasTargetInput = NodeRef | EdgeRef | string;
 type NodeAliasTargetInput = NodeRef | string;
+type ValueInput = ValueExpression | Primitive;
 type ResultCountInput = number | ParameterExpression;
 
 /**
@@ -1086,6 +1089,55 @@ export function properties(target: AliasTargetInput): ValueExpression {
 }
 
 /**
+ * Creates an addition expression.
+ */
+export function add(left: ValueInput, right: ValueInput): ValueExpression {
+  return arithmetic("+", left, right);
+}
+
+/**
+ * Creates a subtraction expression.
+ */
+export function sub(left: ValueInput, right: ValueInput): ValueExpression {
+  return arithmetic("-", left, right);
+}
+
+/**
+ * Creates a multiplication expression.
+ */
+export function mul(left: ValueInput, right: ValueInput): ValueExpression {
+  return arithmetic("*", left, right);
+}
+
+/**
+ * Creates a division expression.
+ */
+export function div(left: ValueInput, right: ValueInput): ValueExpression {
+  return arithmetic("/", left, right);
+}
+
+/**
+ * Creates a searched `CASE WHEN ... THEN ... ELSE ... END` expression.
+ *
+ * @param branches - Ordered CASE branches.
+ * @param otherwise - Fallback value when no branch matches.
+ * @returns A value expression.
+ */
+export function caseWhen(
+  branches: Array<{ when: PredicateExpression; then: ValueInput }>,
+  otherwise: ValueInput,
+): ValueExpression {
+  return {
+    kind: "case",
+    branches: branches.map((branch): CaseBranch => ({
+      when: branch.when,
+      then: normalizeValueInput(branch.then),
+    })),
+    else: normalizeValueInput(otherwise),
+  };
+}
+
+/**
  * Creates a `count(...)` aggregate return selection.
  *
  * Without a target this compiles to `count(*)`.
@@ -1436,6 +1488,19 @@ function functionExpression(
   };
 }
 
+function arithmetic(operator: ArithmeticOperator, left: ValueInput, right: ValueInput): ValueExpression {
+  return {
+    kind: "arithmetic",
+    operator,
+    left: normalizeValueInput(left),
+    right: normalizeValueInput(right),
+  };
+}
+
+function normalizeValueInput(input: ValueInput): ValueExpression {
+  return isValueExpression(input) ? input : value(input);
+}
+
 function aggregate(
   fn: AggregateFunction,
   target: AggregateTargetInput | undefined,
@@ -1570,6 +1635,8 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "property" ||
       value.kind === "rowProperty" ||
       value.kind === "variable" ||
-      value.kind === "function")
+      value.kind === "function" ||
+      value.kind === "arithmetic" ||
+      value.kind === "case")
   );
 }

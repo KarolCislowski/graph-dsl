@@ -33,7 +33,9 @@ export type ValueExpression =
   | PropertyExpression
   | RowPropertyExpression
   | VariableExpression
-  | FunctionExpression;
+  | FunctionExpression
+  | ArithmeticExpression
+  | CaseExpression;
 
 /**
  * Literal value expression. Compilers may parameterize it for the target backend.
@@ -115,6 +117,38 @@ export type FunctionName =
   | "floor"
   | "round"
   | "properties";
+
+/**
+ * Supported arithmetic expression operators.
+ */
+export type ArithmeticOperator = "+" | "-" | "*" | "/";
+
+/**
+ * Numeric expression combining two values.
+ */
+export type ArithmeticExpression = {
+  kind: "arithmetic";
+  operator: ArithmeticOperator;
+  left: ValueExpression;
+  right: ValueExpression;
+};
+
+/**
+ * One branch of a searched CASE expression.
+ */
+export type CaseBranch = {
+  when: PredicateExpression;
+  then: ValueExpression;
+};
+
+/**
+ * Searched CASE expression.
+ */
+export type CaseExpression = {
+  kind: "case";
+  branches: CaseBranch[];
+  else: ValueExpression;
+};
 
 /**
  * Boolean expression used by `where(...)`.

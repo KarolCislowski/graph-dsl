@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   avg,
+  caseWhen,
   collect,
   compileCypher,
   compileLadybugCypher,
@@ -18,6 +19,7 @@ import {
   gte,
   inList,
   labels,
+  lt,
   map,
   max,
   min,
@@ -36,6 +38,7 @@ import {
   select,
   chunk,
   sum,
+  sub,
   toFloat,
   toInteger,
   toString,
@@ -383,6 +386,75 @@ describe("graph-dsl", () => {
         },
       },
     ]);
+  });
+
+  it("compiles arithmetic and case expressions to Cypher", () => {
+    const rawBucket = variable("rawBucket");
+    const bucketCount = param("bucketCount");
+
+    expect(
+      compileCypher(
+        query()
+          .unwind(param("items"), "item")
+          .with(expr(toInteger(row("item", "bucket")), "rawBucket"))
+          .return(
+            expr(
+              caseWhen(
+                [
+                  { when: gte(rawBucket, bucketCount), then: sub(bucketCount, 1) },
+                  { when: lt(rawBucket, 0), then: 0 },
+                ],
+                rawBucket,
+              ),
+              "bucketIndex",
+            ),
+          )
+          .toAst(),
+        { params: { bucketCount: 10 } },
+      ),
+    ).toEqual({
+      query:
+        "UNWIND $items AS item\nWITH toInteger(item.bucket) AS rawBucket\nRETURN CASE WHEN rawBucket >= $bucketCount THEN ($bucketCount - $p0) WHEN rawBucket < $p1 THEN $p2 ELSE rawBucket END AS bucketIndex",
+      params: {
+        bucketCount: 10,
+        p0: 1,
+        p1: 0,
+        p2: 0,
+      },
+    });
+  });
+
+  it("executes arithmetic and case expressions against memory graph", () => {
+    const rawBucket = variable("rawBucket");
+    const bucketCount = param("bucketCount");
+
+    expect(
+      executeMemory(
+        query()
+          .unwind(param("items"), "item")
+          .with(expr(toInteger(row("item", "bucket")), "rawBucket"))
+          .return(
+            expr(
+              caseWhen(
+                [
+                  { when: gte(rawBucket, bucketCount), then: sub(bucketCount, 1) },
+                  { when: lt(rawBucket, 0), then: 0 },
+                ],
+                rawBucket,
+              ),
+              "bucketIndex",
+            ),
+          )
+          .toAst(),
+        { nodes: [], edges: [] },
+        {
+          params: {
+            bucketCount: 10,
+            items: [{ bucket: 12 }, { bucket: -2 }, { bucket: 4 }],
+          },
+        },
+      ),
+    ).toEqual([{ bucketIndex: 9 }, { bucketIndex: 0 }, { bucketIndex: 4 }]);
   });
 
   it("compiles with clauses for pipeline queries", () => {

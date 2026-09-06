@@ -1286,6 +1286,37 @@ MATCH (u:User)
 RETURN floor(value) AS bucket, round(value) AS rounded, toInteger(value) AS integerValue, toString(u.email) AS emailText, properties(u) AS props
 ```
 
+Use arithmetic helpers and `caseWhen(...)` for searched CASE expressions:
+
+```ts
+const rawBucket = variable("rawBucket");
+const bucketCount = param("bucketCount");
+
+query()
+  .unwind(param("items"), "item")
+  .with(expr(toInteger(row("item", "bucket")), "rawBucket"))
+  .return(
+    expr(
+      caseWhen(
+        [
+          { when: gte(rawBucket, bucketCount), then: sub(bucketCount, 1) },
+          { when: lt(rawBucket, 0), then: 0 },
+        ],
+        rawBucket,
+      ),
+      "bucketIndex",
+    ),
+  );
+```
+
+Cypher output:
+
+```cypher
+UNWIND $items AS item
+WITH toInteger(item.bucket) AS rawBucket
+RETURN CASE WHEN rawBucket >= $bucketCount THEN ($bucketCount - $p0) WHEN rawBucket < $p1 THEN $p2 ELSE rawBucket END AS bucketIndex
+```
+
 ## Cypher Compiler
 
 ```ts

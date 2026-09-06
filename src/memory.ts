@@ -970,6 +970,39 @@ function evaluateValue(
       return primitiveOrNull(binding[expression.name]);
     case "function":
       return evaluateFunction(expression.name, expression.args, binding, context);
+    case "arithmetic":
+      return evaluateArithmetic(
+        expression.operator,
+        evaluateValue(expression.left, binding, context),
+        evaluateValue(expression.right, binding, context),
+      );
+    case "case":
+      for (const branch of expression.branches) {
+        if (evaluatePredicate(branch.when, binding, context)) {
+          return evaluateValue(branch.then, binding, context);
+        }
+      }
+
+      return evaluateValue(expression.else, binding, context);
+  }
+}
+
+function evaluateArithmetic(operator: string, left: MemoryValue, right: MemoryValue): Primitive {
+  if (typeof left !== "number" || typeof right !== "number") {
+    return null;
+  }
+
+  switch (operator) {
+    case "+":
+      return left + right;
+    case "-":
+      return left - right;
+    case "*":
+      return left * right;
+    case "/":
+      return right === 0 ? null : left / right;
+    default:
+      throw new Error(`Unsupported arithmetic operator "${operator}".`);
   }
 }
 
@@ -1339,6 +1372,10 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return String(target.value);
     case "function":
       return `${target.name}(...)`;
+    case "arithmetic":
+      return `${aggregateTargetName(target.left)} ${target.operator} ${aggregateTargetName(target.right)}`;
+    case "case":
+      return "case";
   }
 }
 

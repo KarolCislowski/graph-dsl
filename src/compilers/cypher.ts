@@ -411,7 +411,22 @@ function compileValue(expression: ValueExpression, context: CypherContext): stri
       return escapeIdentifier(expression.name);
     case "function":
       return `${expression.name}(${expression.args.map((arg) => compileFunctionArgument(arg, context)).join(", ")})`;
+    case "arithmetic":
+      return `(${compileValue(expression.left, context)} ${expression.operator} ${compileValue(expression.right, context)})`;
+    case "case":
+      return compileCaseExpression(expression, context);
   }
+}
+
+function compileCaseExpression(
+  expression: Extract<ValueExpression, { kind: "case" }>,
+  context: CypherContext,
+): string {
+  const branches = expression.branches
+    .map((branch) => `WHEN ${compilePredicate(branch.when, context)} THEN ${compileValue(branch.then, context)}`)
+    .join(" ");
+
+  return `CASE ${branches} ELSE ${compileValue(expression.else, context)} END`;
 }
 
 function compileFunctionArgument(argument: FunctionArgumentExpression, context: CypherContext): string {
