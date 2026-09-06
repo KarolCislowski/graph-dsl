@@ -4,7 +4,9 @@ import {
   aliasRef,
   and,
   allInList,
+  anyEdge,
   anyInList,
+  anyNode,
   caseWhen,
   collect,
   compileCypher,
@@ -12,6 +14,8 @@ import {
   coalesce,
   count,
   countAll,
+  countWhen,
+  countWhenValue,
   defineEdgeFromJson,
   defineNodeFromJson,
   edge,
@@ -21,6 +25,7 @@ import {
   executeMemory,
   filterList,
   floor,
+  gt,
   gte,
   inList,
   isNotNull,
@@ -1550,6 +1555,52 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("compiles conditional count helpers to Cypher", () => {
+    expect(
+      compileCypher(
+        query()
+          .with(expr(toFloat(row("item", "age")), "value"))
+          .return(
+            countWhen(lt(variable("value"), param("lowThreshold")), "low"),
+            expr(
+              mul(
+                countWhenValue(gt(variable("value"), param("highThreshold"))),
+                2,
+              ),
+              "weightedHigh",
+            ),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "WITH toFloat(item.age) AS value\nRETURN count(CASE WHEN value < $lowThreshold THEN $p0 END) AS low, (count(CASE WHEN value > $highThreshold THEN $p1 END) * $p2) AS weightedHigh",
+      params: {
+        p0: 1,
+        p1: 1,
+        p2: 2,
+      },
+    });
+  });
+
+  it("compiles any-node and any-edge helpers to unlabeled patterns", () => {
+    const source = anyNode("source").props({ graphId: param("graphId") });
+    const target = anyNode("target").props({ graphId: param("graphId") });
+
+    expect(
+      compileCypher(
+        query()
+          .match(anyEdge(source, target, "both").as("relationship"))
+          .return("relationship")
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (source { graphId: $graphId })-[relationship]-(target { graphId: $graphId })\nRETURN relationship",
+      params: {},
+    });
+  });
+
   it("executes aggregate return selections against a memory graph", () => {
     const graph: MemoryGraph = {
       nodes: [
@@ -1651,6 +1702,30 @@ describe("graph-dsl", () => {
     expect(rows[0]?.role).toBe("admin");
     expect(rows[0]?.variance).toBeCloseTo(2);
     expect(rows[1]).toEqual({ role: "reader", variance: 0 });
+  });
+
+  it("executes conditional count helpers against a memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { score: 5 } },
+        { id: "user-2", labels: ["User"], properties: { score: 15 } },
+        { id: "user-3", labels: ["User"], properties: { score: 30 } },
+      ],
+      edges: [],
+    };
+
+    expect(
+      executeMemory(
+        query()
+          .match(node("u", "User"))
+          .return(
+            countWhen(lt(prop("u", "score"), 10), "low"),
+            countWhen(gt(prop("u", "score"), 20), "high"),
+          )
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([{ low: 1, high: 1 }]);
   });
 
   it("executes distinct aggregates against a memory graph", () => {

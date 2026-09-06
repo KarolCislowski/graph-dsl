@@ -212,7 +212,7 @@ export type CaseBranch = {
 export type CaseExpression = {
   kind: "case";
   branches: CaseBranch[];
-  else: ValueExpression;
+  else?: ValueExpression;
 };
 
 /**

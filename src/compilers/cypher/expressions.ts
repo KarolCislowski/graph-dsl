@@ -147,8 +147,9 @@ function compileCaseExpression(
   const branches = expression.branches
     .map((branch) => `WHEN ${compilePredicate(branch.when, context)} THEN ${compileValue(branch.then, context)}`)
     .join(" ");
+  const otherwise = expression.else ? ` ELSE ${compileValue(expression.else, context)}` : "";
 
-  return `CASE ${branches} ELSE ${compileValue(expression.else, context)} END`;
+  return `CASE ${branches}${otherwise} END`;
 }
 
 function compileFunctionArgument(argument: FunctionArgumentExpression, context: CypherContext): string {

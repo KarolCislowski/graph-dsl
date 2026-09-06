@@ -129,6 +129,14 @@ const user = node("u", "User").props({
 });
 ```
 
+Use `anyNode(alias)` when a scoped/admin query intentionally matches any node label:
+
+```ts
+query()
+  .scope({ graphId: param("graphId") })
+  .match(anyNode("node"));
+```
+
 ### Edges
 
 ```ts
@@ -165,6 +173,13 @@ This compiles to:
 
 ```cypher
 (user)-[r:WROTE|EDITED]->(post)
+```
+
+Use `anyEdge(from, to, direction)` when a query intentionally matches any relationship type:
+
+```ts
+query()
+  .match(anyEdge(anyNode("source"), anyNode("target"), "both").as("relationship"));
 ```
 
 ### Paths And Traversals
@@ -1112,6 +1127,7 @@ Supported aggregate helpers:
 | `collect(target, as)` | Collects values into a list. | `collect(prop("u", "email"), "emails")` |
 | `stDev(expression, as)` | Returns sample standard deviation. | `stDev(prop("u", "score"), "scoreStdDev")` |
 | `percentileCont(expression, percentile, as)` | Returns a continuous percentile with interpolation. | `percentileCont(prop("u", "score"), 0.95, "p95")` |
+| `countWhen(predicate, as)` | Counts rows where a predicate is true. | `countWhen(lt(variable("value"), param("low")), "low")` |
 
 Every aggregate helper accepts `{ distinct: true }` as the last argument:
 
@@ -1167,6 +1183,24 @@ RETURN (stDev(u.score) * stDev(u.score)) AS variance
 ```
 
 Available aggregate value helpers mirror the return-selection helpers: `countValue(...)`, `sumValue(...)`, `avgValue(...)`, `minValue(...)`, `maxValue(...)`, `collectValue(...)`, `stDevValue(...)`, and `percentileContValue(...)`.
+
+For conditional counts, use `countWhen(...)` or `countWhenValue(...)`:
+
+```ts
+query()
+  .with(expr(toFloat(row("item", "age")), "value"))
+  .return(
+    countWhen(lt(variable("value"), param("lowThreshold")), "low"),
+    countWhen(gt(variable("value"), param("highThreshold")), "high"),
+  );
+```
+
+Cypher output:
+
+```cypher
+WITH toFloat(item.age) AS value
+RETURN count(CASE WHEN value < $lowThreshold THEN $p0 END) AS low, count(CASE WHEN value > $highThreshold THEN $p1 END) AS high
+```
 
 Map values can be collected or passed through expression helpers:
 

@@ -825,6 +825,18 @@ export function node(alias: string, ...labels: string[]): NodeRef {
 }
 
 /**
+ * Creates a label-less node reference for scoped/admin queries.
+ *
+ * This is an explicit alias for `node(alias)` when the query intentionally matches any node label.
+ *
+ * @param alias - Alias used to refer to this node in the query.
+ * @returns A label-less node reference.
+ */
+export function anyNode(alias: string): NodeRef {
+  return node(alias);
+}
+
+/**
  * Creates an edge reference between two node references.
  *
  * @param from - Source-side node reference.
@@ -835,6 +847,20 @@ export function node(alias: string, ...labels: string[]): NodeRef {
  */
 export function edge(from: NodeRef, label: RelationshipLabel, to: NodeRef, direction: Direction = "out"): EdgeRef {
   return new EdgeRef(from, label, to, direction);
+}
+
+/**
+ * Creates an unlabeled edge reference between two node references.
+ *
+ * This is useful for scoped/admin queries that intentionally match any relationship type.
+ *
+ * @param from - Source-side node reference.
+ * @param to - Target-side node reference.
+ * @param direction - Direction relative to `from` and `to`. Defaults to `out`.
+ * @returns An unlabeled edge reference.
+ */
+export function anyEdge(from: NodeRef, to: NodeRef, direction: Direction = "out"): EdgeRef {
+  return edge(from, "", to, direction);
 }
 
 /**
@@ -1242,7 +1268,7 @@ export function div(left: ValueInput, right: ValueInput): ValueExpression {
  */
 export function caseWhen(
   branches: Array<{ when: PredicateExpression; then: ValueInput }>,
-  otherwise: ValueInput,
+  otherwise?: ValueInput,
 ): ValueExpression {
   return {
     kind: "case",
@@ -1250,7 +1276,7 @@ export function caseWhen(
       when: branch.when,
       then: normalizeValueInput(branch.then),
     })),
-    else: normalizeValueInput(otherwise),
+    ...(otherwise === undefined ? {} : { else: normalizeValueInput(otherwise) }),
   };
 }
 
@@ -1374,6 +1400,18 @@ export function percentileCont(
 }
 
 /**
+ * Creates a conditional `count(CASE WHEN ... THEN 1 END)` aggregate return selection.
+ *
+ * @param predicate - Predicate deciding which rows should be counted.
+ * @param as - Optional projected field alias.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate return selection.
+ */
+export function countWhen(predicate: PredicateExpression, as?: string, options: AggregateOptions = {}): ReturnSelection {
+  return aggregateSelection(countWhenValue(predicate, options), as);
+}
+
+/**
  * Creates a `count(...)` aggregate value expression.
  *
  * @param target - Alias, node/path/edge reference, or value expression to count.
@@ -1468,6 +1506,17 @@ export function percentileContValue(
   }
 
   return aggregateValue("percentileCont", target, options, [normalizeValueInput(percentile)]);
+}
+
+/**
+ * Creates a conditional `count(CASE WHEN ... THEN 1 END)` aggregate value expression.
+ *
+ * @param predicate - Predicate deciding which rows should be counted.
+ * @param options - Optional aggregate behavior.
+ * @returns An aggregate value expression.
+ */
+export function countWhenValue(predicate: PredicateExpression, options: AggregateOptions = {}): ValueExpression {
+  return countValue(caseWhen([{ when: predicate, then: 1 }]), options);
 }
 
 /**

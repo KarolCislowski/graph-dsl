@@ -383,7 +383,7 @@ function expressionContainsAggregate(expression: ValueExpression): boolean {
         expression.branches.some((branch) =>
           predicateContainsAggregate(branch.when) || expressionContainsAggregate(branch.then),
         ) ||
-        expressionContainsAggregate(expression.else)
+        (expression.else ? expressionContainsAggregate(expression.else) : false)
       );
     case "function":
       return expression.args.some(expressionContainsAggregate);

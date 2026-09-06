@@ -223,7 +223,7 @@ export function evaluateValue(
         }
       }
 
-      return evaluateValue(expression.else, binding, context);
+      return expression.else ? evaluateValue(expression.else, binding, context) : null;
   }
 }
 
