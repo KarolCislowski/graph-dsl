@@ -104,7 +104,17 @@ export type FunctionExpression = {
 /**
  * Supported built-in function expressions.
  */
-export type FunctionName = "elementId" | "type" | "labels" | "coalesce";
+export type FunctionName =
+  | "elementId"
+  | "type"
+  | "labels"
+  | "coalesce"
+  | "toFloat"
+  | "toString"
+  | "toInteger"
+  | "floor"
+  | "round"
+  | "properties";
 
 /**
  * Boolean expression used by `where(...)`.

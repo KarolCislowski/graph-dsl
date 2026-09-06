@@ -14,6 +14,7 @@ import {
   eq,
   expr,
   executeMemory,
+  floor,
   gte,
   inList,
   labels,
@@ -26,13 +27,18 @@ import {
   param,
   path,
   prop,
+  properties,
   query,
+  round,
   row,
   runBatches,
   runParamBatches,
   select,
   chunk,
   sum,
+  toFloat,
+  toInteger,
+  toString,
   traverse,
   type as relationshipType,
   value,
@@ -310,6 +316,70 @@ describe("graph-dsl", () => {
           id: "user-1",
           labels: ["User", "Author"],
           displayName: "ada@example.com",
+        },
+      },
+    ]);
+  });
+
+  it("compiles scalar conversion, math, and properties expressions to Cypher", () => {
+    const user = node("u", "User");
+
+    expect(
+      compileCypher(
+        query()
+          .unwind(param("items"), "item")
+          .with(expr(toFloat(row("item", "score")), "value"))
+          .match(user)
+          .return(
+            expr(floor(variable("value")), "bucket"),
+            expr(round(variable("value")), "rounded"),
+            expr(toInteger(variable("value")), "integerValue"),
+            expr(toString(user.prop("email")), "emailText"),
+            expr(properties(user), "props"),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "UNWIND $items AS item\nWITH toFloat(item.score) AS value\nMATCH (u:User)\nRETURN floor(value) AS bucket, round(value) AS rounded, toInteger(value) AS integerValue, toString(u.email) AS emailText, properties(u) AS props",
+      params: {},
+    });
+  });
+
+  it("executes scalar conversion, math, and properties expressions against memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "user-1", labels: ["User"], properties: { email: "ada@example.com", score: 4.7 } },
+      ],
+      edges: [],
+    };
+    const user = node("u", "User");
+
+    expect(
+      executeMemory(
+        query()
+          .match(user)
+          .return(
+            expr(toFloat(user.prop("score")), "value"),
+            expr(floor(user.prop("score")), "floor"),
+            expr(round(user.prop("score")), "round"),
+            expr(toInteger(user.prop("score")), "integerValue"),
+            expr(toString(user.prop("score")), "scoreText"),
+            expr(properties(user), "props"),
+          )
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        value: 4.7,
+        floor: 4,
+        round: 5,
+        integerValue: 4,
+        scoreText: "4.7",
+        props: {
+          email: "ada@example.com",
+          score: 4.7,
         },
       },
     ]);

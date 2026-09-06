@@ -5,6 +5,7 @@ import type {
   BinaryOperator,
   Direction,
   EdgePattern,
+  FunctionName,
   NodePattern,
   OrderExpression,
   ParameterExpression,
@@ -988,11 +989,7 @@ export function order(expression: ValueExpression, direction: "asc" | "desc" = "
  * @returns A scalar function expression.
  */
 export function elementId(target: AliasTargetInput): ValueExpression {
-  return {
-    kind: "function",
-    name: "elementId",
-    args: [aliasTargetToExpression(target)],
-  };
+  return functionExpression("elementId", aliasTargetToExpression(target));
 }
 
 /**
@@ -1002,11 +999,7 @@ export function elementId(target: AliasTargetInput): ValueExpression {
  * @returns A scalar function expression.
  */
 export function type(target: EdgeRef | string): ValueExpression {
-  return {
-    kind: "function",
-    name: "type",
-    args: [aliasTargetToExpression(target)],
-  };
+  return functionExpression("type", aliasTargetToExpression(target));
 }
 
 /**
@@ -1016,11 +1009,7 @@ export function type(target: EdgeRef | string): ValueExpression {
  * @returns A list-valued function expression.
  */
 export function labels(target: NodeAliasTargetInput): ValueExpression {
-  return {
-    kind: "function",
-    name: "labels",
-    args: [aliasTargetToExpression(target)],
-  };
+  return functionExpression("labels", aliasTargetToExpression(target));
 }
 
 /**
@@ -1030,11 +1019,70 @@ export function labels(target: NodeAliasTargetInput): ValueExpression {
  * @returns A scalar function expression.
  */
 export function coalesce(...expressions: Array<ValueExpression | Primitive>): ValueExpression {
-  return {
-    kind: "function",
-    name: "coalesce",
-    args: expressions.map((expression) => isValueExpression(expression) ? expression : value(expression)),
-  };
+  return functionExpression(
+    "coalesce",
+    ...expressions.map((expression) => isValueExpression(expression) ? expression : value(expression)),
+  );
+}
+
+/**
+ * Creates a `toFloat(...)` expression.
+ *
+ * @param expression - Expression or primitive literal to convert.
+ * @returns A scalar function expression.
+ */
+export function toFloat(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("toFloat", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `toString(...)` expression.
+ *
+ * @param expression - Expression or primitive literal to convert.
+ * @returns A scalar function expression.
+ */
+export function toString(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("toString", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `toInteger(...)` expression.
+ *
+ * @param expression - Expression or primitive literal to convert.
+ * @returns A scalar function expression.
+ */
+export function toInteger(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("toInteger", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `floor(...)` expression.
+ *
+ * @param expression - Numeric expression or primitive literal.
+ * @returns A scalar function expression.
+ */
+export function floor(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("floor", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `round(...)` expression.
+ *
+ * @param expression - Numeric expression or primitive literal.
+ * @returns A scalar function expression.
+ */
+export function round(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("round", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `properties(...)` expression for a bound node or relationship.
+ *
+ * @param target - Node, aliased edge, or alias string to inspect.
+ * @returns A map-valued function expression.
+ */
+export function properties(target: AliasTargetInput): ValueExpression {
+  return functionExpression("properties", aliasTargetToExpression(target));
 }
 
 /**
@@ -1375,6 +1423,17 @@ function normalizeResultCount(method: "skip" | "limit", count: ResultCountInput)
   }
 
   return count;
+}
+
+function functionExpression(
+  name: FunctionName,
+  ...args: Array<AliasExpression | ValueExpression>
+): ValueExpression {
+  return {
+    kind: "function",
+    name,
+    args,
+  };
 }
 
 function aggregate(

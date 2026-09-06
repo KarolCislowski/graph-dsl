@@ -1261,6 +1261,31 @@ WHERE $p0 IN labels(u)
 RETURN type(r) AS relationshipType, { id: elementId(u), labels: labels(u), displayName: coalesce(u.name, u.email, $p1) } AS user
 ```
 
+Use scalar conversion and math helpers in projections or `with(...)` stages:
+
+```ts
+query()
+  .unwind(param("items"), "item")
+  .with(expr(toFloat(row("item", "score")), "value"))
+  .match(user)
+  .return(
+    expr(floor(variable("value")), "bucket"),
+    expr(round(variable("value")), "rounded"),
+    expr(toInteger(variable("value")), "integerValue"),
+    expr(toString(user.prop("email")), "emailText"),
+    expr(properties(user), "props"),
+  );
+```
+
+Cypher output:
+
+```cypher
+UNWIND $items AS item
+WITH toFloat(item.score) AS value
+MATCH (u:User)
+RETURN floor(value) AS bucket, round(value) AS rounded, toInteger(value) AS integerValue, toString(u.email) AS emailText, properties(u) AS props
+```
+
 ## Cypher Compiler
 
 ```ts

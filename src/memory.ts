@@ -974,7 +974,17 @@ function evaluateValue(
 }
 
 function evaluateFunction(
-  name: "elementId" | "type" | "labels" | "coalesce",
+  name:
+    | "elementId"
+    | "type"
+    | "labels"
+    | "coalesce"
+    | "toFloat"
+    | "toString"
+    | "toInteger"
+    | "floor"
+    | "round"
+    | "properties",
   args: FunctionArgumentExpression[],
   binding: Binding,
   context: MemoryContext,
@@ -1002,7 +1012,46 @@ function evaluateFunction(
       }
 
       return null;
+    case "toFloat":
+      return toFiniteNumber(evaluateFunctionArgument(args[0], binding, context));
+    case "toString": {
+      const value = evaluateFunctionArgument(args[0], binding, context);
+      return isPrimitive(value) && value !== null ? String(value) : null;
+    }
+    case "toInteger": {
+      const value = toFiniteNumber(evaluateFunctionArgument(args[0], binding, context));
+      return value === null ? null : Math.trunc(value);
+    }
+    case "floor": {
+      const value = toFiniteNumber(evaluateFunctionArgument(args[0], binding, context));
+      return value === null ? null : Math.floor(value);
+    }
+    case "round": {
+      const value = toFiniteNumber(evaluateFunctionArgument(args[0], binding, context));
+      return value === null ? null : Math.round(value);
+    }
+    case "properties": {
+      const target = evaluateFunctionArgument(args[0], binding, context);
+      return isNode(target) || isEdge(target) ? { ...target.properties } : {};
+    }
   }
+}
+
+function toFiniteNumber(value: MemoryValue): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  return null;
 }
 
 function evaluateFunctionArgument(
