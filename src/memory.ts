@@ -127,6 +127,7 @@ type Binding = Record<string, BindingValue> & {
 };
 type MemoryContext = {
   params: Record<string, ParameterValue>;
+  listItems?: Record<string, MemoryValue>;
 };
 
 /**
@@ -917,6 +918,33 @@ function evaluatePredicate(
         : predicate.predicates.some((child) => evaluatePredicate(child, binding, context));
     case "not":
       return !evaluatePredicate(predicate.predicate, binding, context);
+    case "list": {
+      const values = evaluateValue(predicate.source, binding, context);
+
+      if (!Array.isArray(values)) {
+        return predicate.operator === "all";
+      }
+
+      return predicate.operator === "any"
+        ? values.some((value) =>
+          evaluatePredicate(predicate.predicate, binding, {
+            ...context,
+            listItems: {
+              ...(context.listItems ?? {}),
+              [predicate.alias]: value,
+            },
+          }),
+        )
+        : values.every((value) =>
+          evaluatePredicate(predicate.predicate, binding, {
+            ...context,
+            listItems: {
+              ...(context.listItems ?? {}),
+              [predicate.alias]: value,
+            },
+          }),
+        );
+    }
   }
 }
 
@@ -956,7 +984,7 @@ function evaluateValue(
     case "primitive":
       return expression.value;
     case "parameter":
-      return primitiveOrNull(context.params[expression.name]);
+      return parameterValueToMemoryValue(context.params[expression.name]);
     case "property": {
       const entity = binding[expression.alias];
 
@@ -983,6 +1011,8 @@ function evaluateValue(
 
       return row[expression.key] ?? null;
     }
+    case "listItem":
+      return context.listItems?.[expression.alias] ?? null;
     case "variable":
       return primitiveOrNull(binding[expression.name]);
     case "function":
@@ -1436,6 +1466,8 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return `${target.alias}.${target.key}`;
     case "rowProperty":
       return `${target.alias}.${target.key}`;
+    case "listItem":
+      return target.alias;
     case "variable":
       return target.name;
     case "parameter":
@@ -1517,8 +1549,20 @@ function primitiveOrNull(value: unknown): Primitive {
   return isPrimitive(value) ? value : null;
 }
 
+function parameterValueToMemoryValue(value: ParameterValue | undefined): MemoryValue {
+  if (isPrimitive(value) || isPrimitiveArray(value)) {
+    return value;
+  }
+
+  return null;
+}
+
 function isPrimitive(value: unknown): value is Primitive {
   return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
+function isPrimitiveArray(value: unknown): value is Primitive[] {
+  return Array.isArray(value) && value.every(isPrimitive);
 }
 
 function isRowObject(value: unknown): value is MemoryRowObject {

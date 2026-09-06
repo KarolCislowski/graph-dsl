@@ -901,6 +901,16 @@ export function row(alias: string, key: string): ValueExpression {
 }
 
 /**
+ * Creates a reference to an item introduced by `anyInList(...)` or `allInList(...)`.
+ *
+ * @param alias - Item alias used inside a list predicate.
+ * @returns A list item value expression.
+ */
+export function listItem(alias: string): ValueExpression {
+  return { kind: "listItem", alias };
+}
+
+/**
  * Creates a scalar variable expression for values projected by `with(...)`.
  *
  * @param name - Variable name available in the current query pipeline stage.
@@ -1346,6 +1356,38 @@ export function inList(left: ValueExpression, right: ValueExpression | Primitive
 }
 
 /**
+ * Creates a Cypher `any(item IN source WHERE predicate)` list predicate.
+ *
+ * @param alias - Item alias used by the inner predicate.
+ * @param source - List-producing expression.
+ * @param predicate - Predicate evaluated for each list item.
+ * @returns A list predicate expression.
+ */
+export function anyInList(
+  alias: string,
+  source: ValueExpression,
+  predicate: PredicateExpression,
+): PredicateExpression {
+  return listPredicate("any", alias, source, predicate);
+}
+
+/**
+ * Creates a Cypher `all(item IN source WHERE predicate)` list predicate.
+ *
+ * @param alias - Item alias used by the inner predicate.
+ * @param source - List-producing expression.
+ * @param predicate - Predicate evaluated for each list item.
+ * @returns A list predicate expression.
+ */
+export function allInList(
+  alias: string,
+  source: ValueExpression,
+  predicate: PredicateExpression,
+): PredicateExpression {
+  return listPredicate("all", alias, source, predicate);
+}
+
+/**
  * Combines predicates with logical AND.
  *
  * @param predicates - Child predicates. All must evaluate to true.
@@ -1385,6 +1427,21 @@ function binary(
     operator,
     left,
     right: isValueExpression(right) ? right : value(right),
+  };
+}
+
+function listPredicate(
+  operator: "any" | "all",
+  alias: string,
+  source: ValueExpression,
+  predicate: PredicateExpression,
+): PredicateExpression {
+  return {
+    kind: "list",
+    operator,
+    alias,
+    source,
+    predicate,
   };
 }
 
@@ -1675,6 +1732,7 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "parameter" ||
       value.kind === "property" ||
       value.kind === "rowProperty" ||
+      value.kind === "listItem" ||
       value.kind === "variable" ||
       value.kind === "function" ||
       value.kind === "arithmetic" ||

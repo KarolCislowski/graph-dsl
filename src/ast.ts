@@ -32,6 +32,7 @@ export type ValueExpression =
   | ParameterExpression
   | PropertyExpression
   | RowPropertyExpression
+  | ListItemExpression
   | VariableExpression
   | FunctionExpression
   | ArithmeticExpression
@@ -71,6 +72,14 @@ export type RowPropertyExpression = {
   kind: "rowProperty";
   alias: string;
   key: string;
+};
+
+/**
+ * Reference to an item introduced by a list predicate, such as `label`.
+ */
+export type ListItemExpression = {
+  kind: "listItem";
+  alias: string;
 };
 
 /**
@@ -156,7 +165,8 @@ export type CaseExpression = {
 export type PredicateExpression =
   | BinaryPredicateExpression
   | LogicalPredicateExpression
-  | NotPredicateExpression;
+  | NotPredicateExpression
+  | ListPredicateExpression;
 
 /**
  * Supported binary predicate operators.
@@ -192,6 +202,17 @@ export type LogicalPredicateExpression = {
  */
 export type NotPredicateExpression = {
   kind: "not";
+  predicate: PredicateExpression;
+};
+
+/**
+ * Predicate evaluating another predicate for items in a list.
+ */
+export type ListPredicateExpression = {
+  kind: "list";
+  operator: "any" | "all";
+  alias: string;
+  source: ValueExpression;
   predicate: PredicateExpression;
 };
 

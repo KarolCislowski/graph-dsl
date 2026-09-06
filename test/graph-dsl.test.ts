@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   avg,
+  allInList,
+  anyInList,
   caseWhen,
   collect,
   compileCypher,
@@ -19,6 +21,7 @@ import {
   gte,
   inList,
   labels,
+  listItem,
   lt,
   map,
   max,
@@ -395,6 +398,64 @@ describe("graph-dsl", () => {
         },
       },
     ]);
+  });
+
+  it("compiles any/all list predicates to Cypher", () => {
+    const target = node("target");
+
+    expect(
+      compileCypher(
+        query()
+          .match(target)
+          .where(
+            anyInList(
+              "label",
+              labels(target),
+              inList(listItem("label"), param("targetLabels")),
+            ),
+          )
+          .where(
+            allInList(
+              "label",
+              labels(target),
+              neq(listItem("label"), "Archived"),
+            ),
+          )
+          .return(target)
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (target)\nWHERE any(label IN labels(target) WHERE label IN $targetLabels)\nWHERE all(label IN labels(target) WHERE label <> $p0)\nRETURN target",
+      params: {
+        p0: "Archived",
+      },
+    });
+  });
+
+  it("executes any/all list predicates against memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["Person", "Author"], properties: { name: "Ada" } },
+        { id: "node-2", labels: ["Person", "Archived"], properties: { name: "Grace" } },
+        { id: "node-3", labels: ["Post"], properties: { name: "Graph DSLs" } },
+      ],
+      edges: [],
+    };
+    const target = node("target");
+
+    expect(
+      executeMemory(
+        query()
+          .match(target)
+          .where(anyInList("label", labels(target), inList(listItem("label"), param("targetLabels"))))
+          .where(allInList("label", labels(target), neq(listItem("label"), "Archived")))
+          .return(select(target, "name", "name"))
+          .toAst(),
+        graph,
+        { params: { targetLabels: ["Author"] } },
+      ),
+    ).toEqual([{ name: "Ada" }]);
   });
 
   it("compiles scalar conversion, math, and properties expressions to Cypher", () => {

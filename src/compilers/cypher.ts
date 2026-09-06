@@ -358,6 +358,11 @@ function compilePredicate(predicate: PredicateExpression, context: CypherContext
         .join(` ${predicate.operator.toUpperCase()} `);
     case "not":
       return `NOT (${compilePredicate(predicate.predicate, context)})`;
+    case "list":
+      return `${predicate.operator}(${escapeIdentifier(predicate.alias)} IN ${compileValue(
+        predicate.source,
+        context,
+      )} WHERE ${compilePredicate(predicate.predicate, context)})`;
   }
 }
 
@@ -414,6 +419,8 @@ function compileValue(expression: ValueExpression, context: CypherContext): stri
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
     case "rowProperty":
       return `${escapeIdentifier(expression.alias)}.${escapeIdentifier(expression.key)}`;
+    case "listItem":
+      return escapeIdentifier(expression.alias);
     case "variable":
       return escapeIdentifier(expression.name);
     case "function":

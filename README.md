@@ -1169,6 +1169,7 @@ Comparison helpers:
 | `lt(left, right)` | Checks that `left` is less than `right`. | `u.age < $p0` |
 | `lte(left, right)` | Checks that `left` is less than or equal to `right`. | `u.age <= $p0` |
 | `contains(left, right)` | Checks that a string contains another string. | `u.email CONTAINS $p0` |
+| `inList(left, right)` | Checks that `left` is in a list expression. | `label IN $targetLabels` |
 
 Logical helpers combine other predicates:
 
@@ -1203,6 +1204,27 @@ Cypher output:
 MATCH (u:User)
 WHERE (u.active = $p0) AND (u.age >= $p1) AND (u.email CONTAINS $p2) AND (NOT (u.deleted = $p3))
 RETURN u.email AS email
+```
+
+List predicates are available through `anyInList(...)` and `allInList(...)`. Use `listItem(...)` to reference the item bound by the predicate:
+
+```ts
+query()
+  .match(node("target"))
+  .where(
+    anyInList(
+      "label",
+      labels("target"),
+      inList(listItem("label"), param("targetLabels")),
+    ),
+  );
+```
+
+Cypher output:
+
+```cypher
+MATCH (target)
+WHERE any(label IN labels(target) WHERE label IN $targetLabels)
 ```
 
 ## Returning Data
