@@ -34,6 +34,10 @@ export type ValueExpression =
   | RowPropertyExpression
   | ListItemExpression
   | VariableExpression
+  | AliasExpression
+  | MapPropertyExpression
+  | MapExpression
+  | ListIndexExpression
   | FunctionExpression
   | ArithmeticExpression
   | CaseExpression;
@@ -99,9 +103,35 @@ export type AliasExpression = {
 };
 
 /**
+ * Property lookup expression on a map-like value, such as `value.nodeId`.
+ */
+export type MapPropertyExpression = {
+  kind: "mapProperty";
+  source: ValueExpression;
+  key: string;
+};
+
+/**
+ * Inline map value expression, such as `{ nodeId: elementId(n) }`.
+ */
+export type MapExpression = {
+  kind: "mapValue";
+  fields: Record<string, ValueExpression>;
+};
+
+/**
+ * List indexing expression, such as `labels(n)[0]`.
+ */
+export type ListIndexExpression = {
+  kind: "listIndex";
+  source: ValueExpression;
+  index: ValueExpression;
+};
+
+/**
  * Arguments accepted by built-in function expressions.
  */
-export type FunctionArgumentExpression = AliasExpression | ValueExpression;
+export type FunctionArgumentExpression = ValueExpression;
 
 /**
  * Built-in scalar function expression.
@@ -125,7 +155,10 @@ export type FunctionName =
   | "toInteger"
   | "floor"
   | "round"
-  | "properties";
+  | "properties"
+  | "size"
+  | "length"
+  | "last";
 
 /**
  * Supported arithmetic expression operators.
@@ -166,6 +199,7 @@ export type PredicateExpression =
   | BinaryPredicateExpression
   | LogicalPredicateExpression
   | NotPredicateExpression
+  | NullPredicateExpression
   | ListPredicateExpression;
 
 /**
@@ -203,6 +237,15 @@ export type LogicalPredicateExpression = {
 export type NotPredicateExpression = {
   kind: "not";
   predicate: PredicateExpression;
+};
+
+/**
+ * Predicate checking Cypher null state with `IS NULL` or `IS NOT NULL`.
+ */
+export type NullPredicateExpression = {
+  kind: "null";
+  operator: "isNull" | "isNotNull";
+  expression: ValueExpression;
 };
 
 /**

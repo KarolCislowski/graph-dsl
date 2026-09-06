@@ -7,6 +7,7 @@ import type {
 import {
   isEdge,
   isNode,
+  isPath,
   isPrimitive,
   isRowObject,
   isRowObjectArray,
@@ -41,6 +42,10 @@ export function evaluatePredicate(
         : predicate.predicates.some((child) => evaluatePredicate(child, binding, context));
     case "not":
       return !evaluatePredicate(predicate.predicate, binding, context);
+    case "null": {
+      const value = evaluateValue(predicate.expression, binding, context);
+      return predicate.operator === "isNull" ? value === null : value !== null;
+    }
     case "list": {
       const values = evaluateValue(predicate.source, binding, context);
 
@@ -139,7 +144,51 @@ export function evaluateValue(
     case "listItem":
       return context.listItems?.[expression.alias] ?? null;
     case "variable":
-      return primitiveOrNull(binding[expression.name]);
+      return binding[expression.name] ?? null;
+    case "aliasRef":
+      return binding[expression.alias] ?? null;
+    case "mapProperty": {
+      const source = evaluateValue(expression.source, binding, context);
+
+      if (isNode(source) || isEdge(source)) {
+        return source.properties[expression.key] ?? null;
+      }
+
+      if (isRowObject(source)) {
+        return source[expression.key] ?? null;
+      }
+
+      if (typeof source === "object" && source !== null && !Array.isArray(source) && !isPath(source)) {
+        return (source as Record<string, MemoryValue>)[expression.key] ?? null;
+      }
+
+      return null;
+    }
+    case "mapValue":
+      return Object.fromEntries(
+        Object.entries(expression.fields).map(([key, value]) => [
+          key,
+          evaluateValue(value, binding, context),
+        ]),
+      );
+    case "listIndex": {
+      const source = evaluateValue(expression.source, binding, context);
+      const index = evaluateValue(expression.index, binding, context);
+
+      if (typeof index !== "number" || !Number.isInteger(index)) {
+        return null;
+      }
+
+      if (Array.isArray(source)) {
+        return source[index] ?? null;
+      }
+
+      if (typeof source === "string") {
+        return source[index] ?? null;
+      }
+
+      return null;
+    }
     case "function":
       return evaluateFunction(expression.name, expression.args, binding, context);
     case "arithmetic":
@@ -274,7 +323,10 @@ function evaluateFunction(
     | "toInteger"
     | "floor"
     | "round"
-    | "properties",
+    | "properties"
+    | "size"
+    | "length"
+    | "last",
   args: FunctionArgumentExpression[],
   binding: Binding,
   context: MemoryContext,
@@ -324,6 +376,23 @@ function evaluateFunction(
       const target = evaluateFunctionArgument(args[0], binding, context);
       return isNode(target) || isEdge(target) ? { ...target.properties } : {};
     }
+    case "size": {
+      const value = evaluateFunctionArgument(args[0], binding, context);
+
+      if (Array.isArray(value) || typeof value === "string") {
+        return value.length;
+      }
+
+      return null;
+    }
+    case "length": {
+      const value = evaluateFunctionArgument(args[0], binding, context);
+      return isPath(value) ? value.edges.length : null;
+    }
+    case "last": {
+      const value = evaluateFunctionArgument(args[0], binding, context);
+      return Array.isArray(value) ? value.at(-1) ?? null : null;
+    }
   }
 }
 
@@ -351,10 +420,6 @@ function evaluateFunctionArgument(
 ): MemoryValue {
   if (!argument) {
     return null;
-  }
-
-  if (argument.kind === "aliasRef") {
-    return binding[argument.alias] ?? null;
   }
 
   return evaluateValue(argument, binding, context);

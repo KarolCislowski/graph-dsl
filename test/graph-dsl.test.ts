@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   avg,
+  aliasRef,
+  and,
   allInList,
   anyInList,
   caseWhen,
@@ -20,15 +22,23 @@ import {
   floor,
   gte,
   inList,
+  isNotNull,
+  isNull,
   labels,
+  last,
+  length,
+  listAt,
   listItem,
   lt,
   map,
+  mapProp,
+  mapValue,
   max,
   min,
   node,
   neq,
   order,
+  or,
   param,
   path,
   percentileCont,
@@ -41,6 +51,7 @@ import {
   runParamBatches,
   select,
   chunk,
+  size,
   stDev,
   sum,
   sub,
@@ -456,6 +467,114 @@ describe("graph-dsl", () => {
         { params: { targetLabels: ["Author"] } },
       ),
     ).toEqual([{ name: "Ada" }]);
+  });
+
+  it("compiles null predicates, list helpers, and map values to Cypher", () => {
+    const source = node("source", "User");
+    const target = node("target", "Company");
+    const relation = edge(source, "WORKS_AT", target).as("rel");
+    const trail = path("trail", source, "WORKS_AT", target).hops(1, 2).via("rels");
+
+    expect(
+      compileCypher(
+        query()
+          .match(trail)
+          .optionalMatch(relation)
+          .where(or(isNull(relation), isNotNull(prop(target, "email"))))
+          .with(
+            target,
+            expr(listAt(labels(target), 0), "targetType"),
+            expr(relationshipType(last(aliasRef("rels"))), "lastRelationshipType"),
+            expr(length(trail), "depth"),
+            collect(
+              mapValue({
+                edgeId: elementId(relation),
+                edgeProperties: properties(relation),
+                edgeType: relationshipType(relation),
+                labels: labels(target),
+                nodeId: elementId(target),
+                properties: properties(target),
+                schemaKey: "company",
+              }),
+              "rawValues",
+              { distinct: true },
+            ),
+          )
+          .return(
+            expr(variable("targetType"), "targetType"),
+            expr(variable("lastRelationshipType"), "lastRelationshipType"),
+            expr(variable("depth"), "depth"),
+            expr(size(variable("rawValues")), "valueCount"),
+          )
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH trail = (source:User)-[rels:WORKS_AT*1..2]->(target:Company)\nOPTIONAL MATCH (source:User)-[rel:WORKS_AT]->(target:Company)\nWHERE (rel IS NULL) OR (target.email IS NOT NULL)\nWITH target, labels(target)[$p0] AS targetType, type(last(rels)) AS lastRelationshipType, length(trail) AS depth, collect(DISTINCT { edgeId: elementId(rel), edgeProperties: properties(rel), edgeType: type(rel), labels: labels(target), nodeId: elementId(target), properties: properties(target), schemaKey: $p1 }) AS rawValues\nRETURN targetType AS targetType, lastRelationshipType AS lastRelationshipType, depth AS depth, size(rawValues) AS valueCount",
+      params: {
+        p0: 0,
+        p1: "company",
+      },
+    });
+  });
+
+  it("executes null predicates, list helpers, and map values against memory graph", () => {
+    const graph: MemoryGraph = {
+      nodes: [
+        { id: "node-1", labels: ["User"], properties: { email: "ada@example.com" } },
+        { id: "node-2", labels: ["Company"], properties: { name: "Neo Apps", email: "hello@example.com" } },
+      ],
+      edges: [
+        { id: "edge-1", label: "WORKS_AT", from: "node-1", to: "node-2", properties: { since: 2020 } },
+      ],
+    };
+    const source = node("source", "User");
+    const target = node("target", "Company");
+    const relation = edge(source, "WORKS_AT", target).as("rel");
+    const trail = path("trail", source, "WORKS_AT", target).hops(1, 1).via("rels");
+
+    expect(
+      executeMemory(
+        query()
+          .match(trail)
+          .optionalMatch(relation)
+          .where(and(isNotNull(relation), isNotNull(prop(target, "email"))))
+          .with(
+            target,
+            expr(listAt(labels(target), 0), "targetType"),
+            expr(relationshipType(last(aliasRef("rels"))), "lastRelationshipType"),
+            expr(length(trail), "depth"),
+            collect(
+              mapValue({
+                edgeId: elementId(relation),
+                edgeType: relationshipType(relation),
+                nodeId: elementId(target),
+                schemaKey: "company",
+              }),
+              "rawValues",
+              { distinct: true },
+            ),
+          )
+          .with(
+            expr(variable("targetType"), "targetType"),
+            expr(variable("lastRelationshipType"), "lastRelationshipType"),
+            expr(variable("depth"), "depth"),
+            expr(size(variable("rawValues")), "valueCount"),
+            expr(mapProp(listAt(variable("rawValues"), 0), "nodeId"), "firstNodeId"),
+          )
+          .return("targetType", "lastRelationshipType", "depth", "valueCount", "firstNodeId")
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        targetType: "Company",
+        lastRelationshipType: "WORKS_AT",
+        depth: 1,
+        valueCount: 1,
+        firstNodeId: "node-2",
+      },
+    ]);
   });
 
   it("compiles scalar conversion, math, and properties expressions to Cypher", () => {

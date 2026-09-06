@@ -1146,6 +1146,26 @@ MATCH (u:User)
 RETURN stDev(u.score) AS scoreStdDev, percentileCont(u.score, $p0) AS p95
 ```
 
+Map values can be collected or passed through expression helpers:
+
+```ts
+const company = node("company", "Company");
+
+query()
+  .match(company)
+  .return(
+    collect(
+      mapValue({
+        nodeId: elementId(company),
+        labels: labels(company),
+        properties: properties(company),
+      }),
+      "companies",
+      { distinct: true },
+    ),
+  );
+```
+
 ## Predicates
 
 Predicates describe boolean conditions, usually passed to `where(...)`.
@@ -1170,6 +1190,8 @@ Comparison helpers:
 | `lte(left, right)` | Checks that `left` is less than or equal to `right`. | `u.age <= $p0` |
 | `contains(left, right)` | Checks that a string contains another string. | `u.email CONTAINS $p0` |
 | `inList(left, right)` | Checks that `left` is in a list expression. | `label IN $targetLabels` |
+| `isNull(expression)` | Checks Cypher null state. | `u.email IS NULL` |
+| `isNotNull(expression)` | Checks Cypher non-null state. | `u.email IS NOT NULL` |
 
 Logical helpers combine other predicates:
 
@@ -1225,6 +1247,25 @@ Cypher output:
 ```cypher
 MATCH (target)
 WHERE any(label IN labels(target) WHERE label IN $targetLabels)
+```
+
+List, path, and map expression helpers cover common data-view projections:
+
+```ts
+query()
+  .match(path("p", node("source"), "KNOWS", node("target")).hops(1, 3).via("rels"))
+  .return(
+    expr(listAt(labels("target"), 0), "targetType"),
+    expr(type(last(aliasRef("rels"))), "relationshipType"),
+    expr(length("p"), "depth"),
+    expr(size(labels("target")), "labelCount"),
+  );
+```
+
+For map-like values, use `mapProp(...)`:
+
+```ts
+mapProp(variable("value"), "nodeId");
 ```
 
 ## Returning Data

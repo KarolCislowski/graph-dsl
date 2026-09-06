@@ -30,6 +30,8 @@ export function compilePredicate(predicate: PredicateExpression, context: Cypher
         .join(` ${predicate.operator.toUpperCase()} `);
     case "not":
       return `NOT (${compilePredicate(predicate.predicate, context)})`;
+    case "null":
+      return `${compileValue(predicate.expression, context)} ${predicate.operator === "isNull" ? "IS NULL" : "IS NOT NULL"}`;
     case "list":
       return `${predicate.operator}(${escapeIdentifier(predicate.alias)} IN ${compileValue(
         predicate.source,
@@ -82,6 +84,14 @@ export function compileValue(expression: ValueExpression, context: CypherContext
       return escapeIdentifier(expression.alias);
     case "variable":
       return escapeIdentifier(expression.name);
+    case "aliasRef":
+      return escapeIdentifier(expression.alias);
+    case "mapProperty":
+      return `${compileValue(expression.source, context)}.${escapeIdentifier(expression.key)}`;
+    case "mapValue":
+      return compileMapFields(expression.fields, context);
+    case "listIndex":
+      return `${compileValue(expression.source, context)}[${compileValue(expression.index, context)}]`;
     case "function":
       return `${expression.name}(${expression.args.map((arg) => compileFunctionArgument(arg, context)).join(", ")})`;
     case "arithmetic":
@@ -122,9 +132,5 @@ function compileCaseExpression(
 }
 
 function compileFunctionArgument(argument: FunctionArgumentExpression, context: CypherContext): string {
-  if (argument.kind === "aliasRef") {
-    return escapeIdentifier(argument.alias);
-  }
-
   return compileValue(argument, context);
 }

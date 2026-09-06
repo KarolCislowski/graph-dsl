@@ -274,6 +274,12 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return "*";
     case "aliasRef":
       return target.alias;
+    case "mapProperty":
+      return `${aggregateTargetName(target.source)}.${target.key}`;
+    case "mapValue":
+      return "map";
+    case "listIndex":
+      return `${aggregateTargetName(target.source)}[${aggregateTargetName(target.index)}]`;
     case "property":
       return `${target.alias}.${target.key}`;
     case "rowProperty":

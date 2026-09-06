@@ -36,6 +36,7 @@ export type AggregateOptions = {
 
 type AggregateTargetInput = NodeRef | EdgeRef | PathRef | string | ValueExpression;
 type AliasTargetInput = NodeRef | EdgeRef | string;
+type AnyAliasTargetInput = NodeRef | EdgeRef | PathRef | string;
 type NodeAliasTargetInput = NodeRef | string;
 type ValueInput = ValueExpression | Primitive;
 type ResultCountInput = number | ParameterExpression;
@@ -921,6 +922,16 @@ export function variable(name: string): ValueExpression {
 }
 
 /**
+ * Creates a reference to a bound graph alias, such as a node or relationship alias.
+ *
+ * @param name - Alias available in the current query pipeline stage.
+ * @returns An alias value expression.
+ */
+export function aliasRef(name: string): ValueExpression {
+  return { kind: "aliasRef", alias: name };
+}
+
+/**
  * Creates a property lookup expression.
  *
  * @param ref - Node reference or alias string.
@@ -931,6 +942,21 @@ export function prop(ref: NodeRef | string, key: string): ValueExpression {
   return {
     kind: "property",
     alias: typeof ref === "string" ? ref : ref.alias,
+    key,
+  };
+}
+
+/**
+ * Creates a property lookup on a map-like value expression.
+ *
+ * @param source - Map-like value expression.
+ * @param key - Property key to read.
+ * @returns A map property value expression.
+ */
+export function mapProp(source: ValueExpression, key: string): ValueExpression {
+  return {
+    kind: "mapProperty",
+    source,
     key,
   };
 }
@@ -983,6 +1009,19 @@ export function map(as: string, fields: Record<string, ValueExpression | Primiti
 }
 
 /**
+ * Creates an inline map value expression usable inside projections and aggregates.
+ *
+ * @param fields - Map fields keyed by output property name.
+ * @returns A map value expression.
+ */
+export function mapValue(fields: Record<string, ValueExpression | Primitive>): ValueExpression {
+  return {
+    kind: "mapValue",
+    fields: normalizeProperties(fields),
+  };
+}
+
+/**
  * Creates an explicit order expression for `orderBy(...)`.
  *
  * @param expression - Value expression to sort by.
@@ -1012,8 +1051,8 @@ export function elementId(target: AliasTargetInput): ValueExpression {
  * @param target - Aliased edge reference or edge alias.
  * @returns A scalar function expression.
  */
-export function type(target: EdgeRef | string): ValueExpression {
-  return functionExpression("type", aliasTargetToExpression(target));
+export function type(target: EdgeRef | string | ValueExpression): ValueExpression {
+  return functionExpression("type", isValueExpression(target) ? target : aliasTargetToExpression(target));
 }
 
 /**
@@ -1097,6 +1136,51 @@ export function round(expression: ValueExpression | Primitive): ValueExpression 
  */
 export function properties(target: AliasTargetInput): ValueExpression {
   return functionExpression("properties", aliasTargetToExpression(target));
+}
+
+/**
+ * Creates a `size(...)` expression for lists or strings.
+ *
+ * @param expression - List or string expression to measure.
+ * @returns A numeric function expression.
+ */
+export function size(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("size", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `length(...)` expression for paths.
+ *
+ * @param target - Path alias/reference or expression to measure.
+ * @returns A numeric function expression.
+ */
+export function length(target: AnyAliasTargetInput | ValueExpression): ValueExpression {
+  return functionExpression("length", isValueExpression(target) ? target : anyAliasTargetToExpression(target));
+}
+
+/**
+ * Creates a list indexing expression, such as `labels(n)[0]`.
+ *
+ * @param source - List-producing expression.
+ * @param index - Zero-based index expression or literal.
+ * @returns A list index value expression.
+ */
+export function listAt(source: ValueExpression, index: ValueExpression | number): ValueExpression {
+  return {
+    kind: "listIndex",
+    source,
+    index: normalizeValueInput(index),
+  };
+}
+
+/**
+ * Creates a `last(...)` expression for lists.
+ *
+ * @param source - List-producing expression.
+ * @returns A value expression for the last list item.
+ */
+export function last(source: ValueExpression): ValueExpression {
+  return functionExpression("last", source);
 }
 
 /**
@@ -1356,6 +1440,26 @@ export function inList(left: ValueExpression, right: ValueExpression | Primitive
 }
 
 /**
+ * Creates an `IS NULL` predicate.
+ *
+ * @param expression - Expression or alias to check.
+ * @returns A null-check predicate expression.
+ */
+export function isNull(expression: ValueExpression | AnyAliasTargetInput): PredicateExpression {
+  return nullPredicate("isNull", normalizeNullableExpression(expression));
+}
+
+/**
+ * Creates an `IS NOT NULL` predicate.
+ *
+ * @param expression - Expression or alias to check.
+ * @returns A null-check predicate expression.
+ */
+export function isNotNull(expression: ValueExpression | AnyAliasTargetInput): PredicateExpression {
+  return nullPredicate("isNotNull", normalizeNullableExpression(expression));
+}
+
+/**
  * Creates a Cypher `any(item IN source WHERE predicate)` list predicate.
  *
  * @param alias - Item alias used by the inner predicate.
@@ -1442,6 +1546,17 @@ function listPredicate(
     alias,
     source,
     predicate,
+  };
+}
+
+function nullPredicate(
+  operator: "isNull" | "isNotNull",
+  expression: ValueExpression,
+): PredicateExpression {
+  return {
+    kind: "null",
+    operator,
+    expression,
   };
 }
 
@@ -1666,6 +1781,38 @@ function aliasTargetToExpression(target: AliasTargetInput): AliasExpression {
   throw new Error("Unsupported alias target.");
 }
 
+function anyAliasTargetToExpression(target: AnyAliasTargetInput): AliasExpression {
+  if (typeof target === "string") {
+    return { kind: "aliasRef", alias: target };
+  }
+
+  if (target instanceof NodeRef) {
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  if (target instanceof EdgeRef) {
+    if (!target.alias) {
+      throw new Error("Alias expression targets require an aliased edge, for example edge(a, \"KNOWS\", b).as(\"r\").");
+    }
+
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  if (target instanceof PathRef) {
+    if (!target.alias) {
+      throw new Error("Alias expression targets require an aliased path, for example path(\"p\", a, \"KNOWS\", b).");
+    }
+
+    return { kind: "aliasRef", alias: target.alias };
+  }
+
+  throw new Error("Unsupported alias target.");
+}
+
+function normalizeNullableExpression(input: ValueExpression | AnyAliasTargetInput): ValueExpression {
+  return isValueExpression(input) ? input : anyAliasTargetToExpression(input);
+}
+
 function validateHops(minHops: number, maxHops: number | undefined): void {
   if (!Number.isInteger(minHops) || minHops < 0) {
     throw new Error("Traversal minHops must be a non-negative integer.");
@@ -1734,6 +1881,10 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "rowProperty" ||
       value.kind === "listItem" ||
       value.kind === "variable" ||
+      value.kind === "aliasRef" ||
+      value.kind === "mapProperty" ||
+      value.kind === "mapValue" ||
+      value.kind === "listIndex" ||
       value.kind === "function" ||
       value.kind === "arithmetic" ||
       value.kind === "case")
