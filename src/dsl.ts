@@ -1185,6 +1185,27 @@ export function last(source: ValueExpression): ValueExpression {
 }
 
 /**
+ * Creates a filtered list comprehension expression.
+ *
+ * @param alias - Item alias used by the predicate.
+ * @param source - List-producing expression to filter.
+ * @param predicate - Predicate evaluated for each list item.
+ * @returns A list comprehension value expression.
+ */
+export function filterList(
+  alias: string,
+  source: ValueExpression,
+  predicate: PredicateExpression,
+): ValueExpression {
+  return {
+    kind: "listComprehension",
+    alias,
+    source,
+    predicate,
+  };
+}
+
+/**
  * Creates an addition expression.
  */
 export function add(left: ValueInput, right: ValueInput): ValueExpression {
@@ -1996,6 +2017,7 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "mapProperty" ||
       value.kind === "mapValue" ||
       value.kind === "listIndex" ||
+      value.kind === "listComprehension" ||
       value.kind === "aggregateValue" ||
       value.kind === "function" ||
       value.kind === "arithmetic" ||

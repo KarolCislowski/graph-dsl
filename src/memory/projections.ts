@@ -333,6 +333,8 @@ function aggregateTargetName(target: AggregateTargetExpression): string {
       return "map";
     case "listIndex":
       return `${aggregateTargetName(target.source)}[${aggregateTargetName(target.index)}]`;
+    case "listComprehension":
+      return "listComprehension";
     case "property":
       return `${target.alias}.${target.key}`;
     case "rowProperty":
@@ -387,6 +389,8 @@ function expressionContainsAggregate(expression: ValueExpression): boolean {
       return expression.args.some(expressionContainsAggregate);
     case "listIndex":
       return expressionContainsAggregate(expression.source) || expressionContainsAggregate(expression.index);
+    case "listComprehension":
+      return expressionContainsAggregate(expression.source) || predicateContainsAggregate(expression.predicate);
     case "mapProperty":
       return expressionContainsAggregate(expression.source);
     case "mapValue":

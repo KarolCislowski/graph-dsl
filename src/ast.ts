@@ -38,6 +38,7 @@ export type ValueExpression =
   | MapPropertyExpression
   | MapExpression
   | ListIndexExpression
+  | ListComprehensionExpression
   | AggregateValueExpression
   | FunctionExpression
   | ArithmeticExpression
@@ -127,6 +128,16 @@ export type ListIndexExpression = {
   kind: "listIndex";
   source: ValueExpression;
   index: ValueExpression;
+};
+
+/**
+ * Filtered list comprehension expression, such as `[value IN values WHERE value.id IS NOT NULL]`.
+ */
+export type ListComprehensionExpression = {
+  kind: "listComprehension";
+  alias: string;
+  source: ValueExpression;
+  predicate: PredicateExpression;
 };
 
 /**

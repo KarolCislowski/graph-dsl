@@ -90,6 +90,11 @@ export function compileValue(expression: ValueExpression, context: CypherContext
       return compileMapFields(expression.fields, context);
     case "listIndex":
       return `${compileValue(expression.source, context)}[${compileValue(expression.index, context)}]`;
+    case "listComprehension":
+      return `[${escapeIdentifier(expression.alias)} IN ${compileValue(expression.source, context)} WHERE ${compilePredicate(
+        expression.predicate,
+        context,
+      )}]`;
     case "aggregateValue":
       return compileAggregateCall(expression, context);
     case "function":

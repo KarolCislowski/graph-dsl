@@ -1290,6 +1290,28 @@ For map-like values, use `mapProp(...)`:
 mapProp(variable("value"), "nodeId");
 ```
 
+Filtered list comprehensions are available through `filterList(...)`:
+
+```ts
+query()
+  .with(
+    expr(
+      filterList(
+        "value",
+        variable("rawValues"),
+        isNotNull(mapProp(listItem("value"), "nodeId")),
+      ),
+      "values",
+    ),
+  );
+```
+
+Cypher output:
+
+```cypher
+WITH [value IN rawValues WHERE value.nodeId IS NOT NULL] AS values
+```
+
 ## Returning Data
 
 Return a whole node:

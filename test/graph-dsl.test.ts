@@ -19,6 +19,7 @@ import {
   eq,
   expr,
   executeMemory,
+  filterList,
   floor,
   gte,
   inList,
@@ -577,6 +578,74 @@ describe("graph-dsl", () => {
         firstNodeId: "node-2",
       },
     ]);
+  });
+
+  it("compiles filtered list comprehensions to Cypher", () => {
+    expect(
+      compileCypher(
+        query()
+          .with(
+            expr(
+              filterList(
+                "value",
+                variable("rawValues"),
+                isNotNull(mapProp(listItem("value"), "nodeId")),
+              ),
+              "values",
+            ),
+          )
+          .return(expr(listAt(variable("values"), 0), "col0"))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "WITH [value IN rawValues WHERE value.nodeId IS NOT NULL] AS values\nRETURN values[$p0] AS col0",
+      params: {
+        p0: 0,
+      },
+    });
+  });
+
+  it("executes filtered list comprehensions against memory values", () => {
+    const target = node("target", "Company");
+
+    expect(
+      executeMemory(
+        query()
+          .match(target)
+          .with(
+            collect(
+              mapValue({
+                nodeId: caseWhen(
+                  [{ when: eq(prop(target, "name"), "Empty"), then: null }],
+                  elementId(target),
+                ),
+              }),
+              "rawValues",
+            ),
+          )
+          .with(
+            expr(
+              filterList(
+                "value",
+                variable("rawValues"),
+                isNotNull(mapProp(listItem("value"), "nodeId")),
+              ),
+              "values",
+            ),
+          )
+          .return(expr(size(variable("values")), "count"), expr(mapProp(listAt(variable("values"), 0), "nodeId"), "firstNodeId"))
+          .toAst(),
+        {
+          nodes: [
+            { id: "node-1", labels: ["Company"], properties: { name: "Empty" } },
+            { id: "node-2", labels: ["Company"], properties: { name: "Neo Apps" } },
+            { id: "node-3", labels: ["Company"], properties: { name: "Graph Hub" } },
+          ],
+          edges: [],
+        },
+      ),
+    ).toEqual([{ count: 2, firstNodeId: "node-2" }]);
   });
 
   it("compiles scalar conversion, math, and properties expressions to Cypher", () => {

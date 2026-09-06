@@ -189,6 +189,23 @@ export function evaluateValue(
 
       return null;
     }
+    case "listComprehension": {
+      const source = evaluateValue(expression.source, binding, context);
+
+      if (!Array.isArray(source)) {
+        return [];
+      }
+
+      return source.filter((item) =>
+        evaluatePredicate(expression.predicate, binding, {
+          ...context,
+          listItems: {
+            ...(context.listItems ?? {}),
+            [expression.alias]: item,
+          },
+        }),
+      );
+    }
     case "aggregateValue":
       return context.aggregate?.(expression) ?? null;
     case "function":
