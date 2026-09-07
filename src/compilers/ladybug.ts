@@ -88,6 +88,7 @@ function validateClause(clause: Clause): void {
     case "skip":
     case "limit":
     case "set":
+    case "setMap":
     case "onCreateSet":
     case "onMatchSet":
     case "delete":

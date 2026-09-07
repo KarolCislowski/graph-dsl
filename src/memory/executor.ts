@@ -16,6 +16,7 @@ import {
   mergeEdges,
   mergePatterns,
   optionalMatchPatterns,
+  setMap,
   setProperty,
 } from "./patterns.js";
 import {
@@ -140,6 +141,9 @@ function executeClauses(
         break;
       case "set":
         bindings = bindings.map((binding) => setProperty(binding, clause.alias, clause.key, clause.value, context));
+        break;
+      case "setMap":
+        bindings = bindings.map((binding) => setMap(binding, clause.alias, clause.value, context));
         break;
       case "onCreateSet":
         bindings = bindings.map((binding) =>

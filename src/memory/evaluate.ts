@@ -379,6 +379,7 @@ function evaluateFunction(
     | "toFloat"
     | "toString"
     | "toInteger"
+    | "toLower"
     | "floor"
     | "round"
     | "properties"
@@ -421,6 +422,10 @@ function evaluateFunction(
     case "toInteger": {
       const value = toFiniteNumber(evaluateFunctionArgument(args[0], binding, context));
       return value === null ? null : Math.trunc(value);
+    }
+    case "toLower": {
+      const value = evaluateFunctionArgument(args[0], binding, context);
+      return typeof value === "string" ? value.toLowerCase() : null;
     }
     case "floor": {
       const value = toFiniteNumber(evaluateFunctionArgument(args[0], binding, context));

@@ -10,8 +10,11 @@ import {
   caseWhen,
   collect,
   compileCypher,
+  compileExpression,
   compileLadybugCypher,
+  compilePredicate,
   coalesce,
+  contains,
   count,
   countAll,
   countWhen,
@@ -67,6 +70,7 @@ import {
   sub,
   toFloat,
   toInteger,
+  toLower,
   toString,
   traverse,
   type as relationshipType,
@@ -696,6 +700,22 @@ describe("graph-dsl", () => {
     });
   });
 
+  it("compiles case-insensitive filter fragments", () => {
+    expect(
+      compilePredicate(
+        contains(toLower(toString(variable("column"))), param("filterContains")),
+      ),
+    ).toEqual({
+      query: "toLower(toString(column)) CONTAINS $filterContains",
+      params: {},
+    });
+
+    expect(compileExpression(toLower(toString(prop("node", "email"))))).toEqual({
+      query: "toLower(toString(node.email))",
+      params: {},
+    });
+  });
+
   it("executes dynamic property access and mapped lists against memory values", () => {
     const record = node("node", "Person");
 
@@ -1143,6 +1163,21 @@ describe("graph-dsl", () => {
         query()
           .match(node("u", "User"))
           .where(eq(prop("u", "email"), param("email")))
+          .setMap("u", row("item", "patch"))
+          .return("u")
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (u:User)\nWHERE u.email = $email\nSET u += item.patch\nRETURN u",
+      params: {},
+    });
+
+    expect(
+      compileCypher(
+        query()
+          .match(node("u", "User"))
+          .where(eq(prop("u", "email"), param("email")))
           .delete("u")
           .toAst(),
         { params: { email: "ada@example.com" } },
@@ -1215,6 +1250,23 @@ describe("graph-dsl", () => {
     ).toEqual([
       {
         name: "Ada Lovelace",
+      },
+    ]);
+
+    expect(
+      executeMemory(
+        query()
+          .match(matchedUser)
+          .where(contains(toLower(toString(matchedUser.prop("name"))), "lovelace"))
+          .setMap(matchedUser, mapValue({ active: true, score: 42 }))
+          .return(select(matchedUser, "active", "active"), select(matchedUser, "score", "score"))
+          .toAst(),
+        graph,
+      ),
+    ).toEqual([
+      {
+        active: true,
+        score: 42,
       },
     ]);
 

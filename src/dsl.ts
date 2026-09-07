@@ -609,6 +609,21 @@ export class QueryBuilder {
   }
 
   /**
+   * Adds a map merge update clause.
+   *
+   * @param alias - Bound node/edge alias or reference to update.
+   * @param mapExpression - Map-producing expression to merge into the entity.
+   * @returns A new query builder with the set-map clause appended.
+   */
+  setMap(alias: NodeRef | EdgeRef | string, mapExpression: ValueExpression): QueryBuilder {
+    return this.addClause({
+      kind: "setMap",
+      alias: normalizeDeleteAlias(alias),
+      value: mapExpression,
+    });
+  }
+
+  /**
    * Adds a property update that runs only when the preceding merge creates data.
    *
    * @param property - Property expression to update.
@@ -1151,6 +1166,16 @@ export function toString(expression: ValueExpression | Primitive): ValueExpressi
  */
 export function toInteger(expression: ValueExpression | Primitive): ValueExpression {
   return functionExpression("toInteger", isValueExpression(expression) ? expression : value(expression));
+}
+
+/**
+ * Creates a `toLower(...)` expression.
+ *
+ * @param expression - String expression or primitive literal to lowercase.
+ * @returns A scalar function expression.
+ */
+export function toLower(expression: ValueExpression | Primitive): ValueExpression {
+  return functionExpression("toLower", isValueExpression(expression) ? expression : value(expression));
 }
 
 /**

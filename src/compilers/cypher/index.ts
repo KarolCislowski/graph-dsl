@@ -1,8 +1,14 @@
 import type {
   CompilerOutput,
+  PredicateExpression,
   QueryAst,
+  ValueExpression,
 } from "../../ast.js";
 import { compileClause } from "./clauses.js";
+import {
+  compilePredicate as compilePredicateExpression,
+  compileValue,
+} from "./expressions.js";
 import type {
   CypherCompileOptions,
   CypherContext,
@@ -23,13 +29,57 @@ export type { CypherCompileOptions } from "./types.js";
  * @returns A Cypher query string together with its parameters.
  */
 export function compileCypher(ast: QueryAst, options: CypherCompileOptions = {}): CompilerOutput {
-  const context: CypherContext = {
-    params: { ...(options.params ?? {}) },
-    literalIndex: 0,
-  };
+  const context = createCypherContext(options);
 
   return {
     query: ast.clauses.map((clause) => compileClause(clause, context)).join("\n"),
     params: context.params,
   };
+}
+
+/**
+ * Compiles a standalone value expression to Cypher text and parameters.
+ *
+ * This is useful for application-level query generators that need to migrate
+ * small dynamic fragments before the whole query is represented as DSL.
+ *
+ * @param expression - Value expression to compile.
+ * @param options - Optional compiler settings and initial parameters.
+ * @returns A Cypher expression string together with its parameters.
+ */
+export function compileExpression(expression: ValueExpression, options: CypherCompileOptions = {}): CompilerOutput {
+  const context = createCypherContext(options);
+
+  return {
+    query: compileValue(expression, context),
+    params: context.params,
+  };
+}
+
+/**
+ * Compiles a standalone predicate expression to Cypher text and parameters.
+ *
+ * This is useful for runtime filter builders that still own query assembly but
+ * want DSL-backed predicate construction and parameterization.
+ *
+ * @param predicate - Predicate expression to compile.
+ * @param options - Optional compiler settings and initial parameters.
+ * @returns A Cypher predicate string together with its parameters.
+ */
+export function compilePredicate(predicate: PredicateExpression, options: CypherCompileOptions = {}): CompilerOutput {
+  const context = createCypherContext(options);
+
+  return {
+    query: compilePredicateExpression(predicate, context),
+    params: context.params,
+  };
+}
+
+function createCypherContext(options: CypherCompileOptions): CypherContext {
+  const context: CypherContext = {
+    params: { ...(options.params ?? {}) },
+    literalIndex: 0,
+  };
+
+  return context;
 }

@@ -145,6 +145,36 @@ export function setProperty(
 }
 
 /**
+ * Merges primitive fields from a map expression into a bound node or edge.
+ */
+export function setMap(
+  binding: Binding,
+  alias: string,
+  mapExpression: ValueExpression,
+  context: MemoryContext,
+): Binding {
+  const entity = binding[alias];
+
+  if (!entity || (!isNode(entity) && !isEdge(entity))) {
+    return binding;
+  }
+
+  const value = evaluateValue(mapExpression, binding, context);
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return binding;
+  }
+
+  for (const [key, nextValue] of Object.entries(value)) {
+    if (typeof key === "string") {
+      entity.properties[key] = primitiveOrNull(nextValue);
+    }
+  }
+
+  return binding;
+}
+
+/**
  * Deletes bound nodes or edges, optionally detaching connected relationships.
  */
 export function deleteAliases(

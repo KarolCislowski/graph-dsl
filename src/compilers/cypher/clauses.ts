@@ -55,6 +55,8 @@ export function compileClause(clause: Clause, context: CypherContext): string {
         clause.value,
         context,
       )}`;
+    case "setMap":
+      return `SET ${escapeIdentifier(clause.alias)} += ${compileValue(clause.value, context)}`;
     case "onCreateSet":
       return `ON CREATE SET ${escapeIdentifier(clause.alias)}.${escapeIdentifier(clause.key)} = ${compileValue(
         clause.value,

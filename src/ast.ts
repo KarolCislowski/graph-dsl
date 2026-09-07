@@ -197,6 +197,7 @@ export type FunctionName =
   | "toFloat"
   | "toString"
   | "toInteger"
+  | "toLower"
   | "floor"
   | "round"
   | "properties"
@@ -561,6 +562,15 @@ export type SetPropertyClause = {
 };
 
 /**
+ * Clause merging a map expression into a bound graph entity.
+ */
+export type SetMapClause = {
+  kind: "setMap";
+  alias: string;
+  value: ValueExpression;
+};
+
+/**
  * Clause setting one property only when the preceding merge created data.
  */
 export type OnCreateSetClause = {
@@ -615,6 +625,7 @@ export type Clause =
   | LimitClause
   | CallClause
   | SetPropertyClause
+  | SetMapClause
   | OnCreateSetClause
   | OnMatchSetClause
   | DeleteClause

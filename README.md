@@ -673,6 +673,26 @@ SET u.name = $p0
 RETURN u.name AS name
 ```
 
+Use `setMap(...)` for Cypher map patches such as `SET node += row`:
+
+```ts
+const ast = query()
+  .match(node("u", "User"))
+  .where(eq(prop("u", "email"), param("email")))
+  .setMap("u", row("item", "patch"))
+  .return("u")
+  .toAst();
+```
+
+Cypher output:
+
+```cypher
+MATCH (u:User)
+WHERE u.email = $email
+SET u += item.patch
+RETURN u
+```
+
 ### Delete
 
 ```ts
@@ -1249,6 +1269,18 @@ MATCH (node:Person)
 WITH [field IN $identityFields | toString(node[field])] AS identityValues, count(node) AS recordCount
 ```
 
+Case-insensitive runtime filters can be represented with `toLower(...)` and `toString(...)`:
+
+```ts
+contains(toLower(toString(variable("column"))), param("filterContains"));
+```
+
+Cypher output:
+
+```cypher
+toLower(toString(column)) CONTAINS $filterContains
+```
+
 ## Predicates
 
 Predicates describe boolean conditions, usually passed to `where(...)`.
@@ -1538,6 +1570,15 @@ console.log(result.query);
 console.log(result.params);
 ```
 
+You can also compile standalone expression and predicate fragments. This is useful when migrating a runtime filter system incrementally while keeping parameter handling in the DSL compiler:
+
+```ts
+import { compileExpression, compilePredicate, contains, param, toLower, toString, variable } from "graph-dsl";
+
+compileExpression(toLower(toString(variable("column"))));
+compilePredicate(contains(toLower(toString(variable("column"))), param("filterContains")));
+```
+
 Compiler result:
 
 ```ts
@@ -1713,9 +1754,9 @@ console.log(JSON.stringify(ast, null, 2));
 - Path/traversal patterns are read-only and can be used with `match(...)`; `create(...)` and `merge(...)` reject them.
 - The memory executor requires `maxHops` for traversal patterns. Cypher compilation can emit unbounded traversals such as `*1..`.
 - Ladybug Cypher compilation requires bounded traversal patterns and rejects multi-label node patterns.
-- `set(...)`, `onCreateSet(...)`, and `onMatchSet(...)` update one property at a time; use `setProps(...)`, `onCreateSetProps(...)`, or `onMatchSetProps(...)` for schema-generated multi-property patches.
+- `set(...)`, `onCreateSet(...)`, and `onMatchSet(...)` update one property at a time; use `setProps(...)`, `onCreateSetProps(...)`, `onMatchSetProps(...)`, or `setMap(...)` for broader patches.
 - The memory executor is intentionally small and not a full database; it is meant for tests, mocks, and semantic checks.
-- Cypher support currently covers the portable MVP: `UNWIND`, `MATCH`, variable-length path traversal, `CREATE`, `MERGE`, merge-specific `ON CREATE SET`/`ON MATCH SET`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `RETURN` with aggregate projections, `SET`, and `DELETE`.
+- Cypher support currently covers the portable MVP plus migration-focused primitives: `UNWIND`, `MATCH`, `OPTIONAL MATCH`, `WITH`, `CALL`, variable-length path traversal, `CREATE`, `MERGE`, merge-specific `ON CREATE SET`/`ON MATCH SET`, relationship-only `CREATE`/`MERGE` via `createEdge(...)`/`mergeEdge(...)`, `WHERE`, `RETURN` with aggregate projections, result controls, `SET`, map patch `SET +=`, `DELETE`, and `DETACH DELETE`.
 - Batch helpers are driver-neutral and sequential by default; there is no built-in Neo4j session/transaction adapter yet.
 
 ## Roadmap
