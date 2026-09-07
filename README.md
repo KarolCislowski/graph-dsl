@@ -1222,6 +1222,33 @@ query()
   );
 ```
 
+Dynamic property access and mapped list comprehensions cover runtime-selected identity fields:
+
+```ts
+const record = node("node", "Person");
+
+query()
+  .match(record)
+  .with(
+    expr(
+      mapList(
+        "field",
+        param("identityFields"),
+        toString(dynamicProp(record, listItem("field"))),
+      ),
+      "identityValues",
+    ),
+    count(record, "recordCount"),
+  );
+```
+
+Cypher output:
+
+```cypher
+MATCH (node:Person)
+WITH [field IN $identityFields | toString(node[field])] AS identityValues, count(node) AS recordCount
+```
+
 ## Predicates
 
 Predicates describe boolean conditions, usually passed to `where(...)`.

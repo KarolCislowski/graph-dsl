@@ -86,6 +86,8 @@ export function compileValue(expression: ValueExpression, context: CypherContext
       return escapeIdentifier(expression.alias);
     case "mapProperty":
       return `${compileValue(expression.source, context)}.${escapeIdentifier(expression.key)}`;
+    case "dynamicProperty":
+      return `${compileValue(expression.source, context)}[${compileValue(expression.key, context)}]`;
     case "mapValue":
       return compileMapFields(expression.fields, context);
     case "listIndex":
@@ -93,6 +95,11 @@ export function compileValue(expression: ValueExpression, context: CypherContext
     case "listComprehension":
       return `[${escapeIdentifier(expression.alias)} IN ${compileValue(expression.source, context)} WHERE ${compilePredicate(
         expression.predicate,
+        context,
+      )}]`;
+    case "listMap":
+      return `[${escapeIdentifier(expression.alias)} IN ${compileValue(expression.source, context)} | ${compileValue(
+        expression.expression,
         context,
       )}]`;
     case "aggregateValue":

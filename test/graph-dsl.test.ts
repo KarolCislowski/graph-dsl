@@ -18,6 +18,7 @@ import {
   countWhenValue,
   defineEdgeFromJson,
   defineNodeFromJson,
+  dynamicProp,
   edge,
   elementId,
   eq,
@@ -37,6 +38,7 @@ import {
   listItem,
   lt,
   map,
+  mapList,
   mapProp,
   mapValue,
   max,
@@ -651,6 +653,91 @@ describe("graph-dsl", () => {
         },
       ),
     ).toEqual([{ count: 2, firstNodeId: "node-2" }]);
+  });
+
+  it("compiles dynamic property access and mapped lists to Cypher", () => {
+    const record = node("node", "Person");
+
+    expect(
+      compileCypher(
+        query()
+          .match(record)
+          .with(
+            expr(
+              mapList(
+                "field",
+                param("identityFields"),
+                toString(dynamicProp(record, listItem("field"))),
+              ),
+              "identityValues",
+            ),
+            count(record, "recordCount"),
+          )
+          .where(
+            and(
+              allInList(
+                "value",
+                variable("identityValues"),
+                and(isNotNull(listItem("value")), neq(listItem("value"), "")),
+              ),
+              gt(variable("recordCount"), 1),
+            ),
+          )
+          .return(countAll("groups"), sum(variable("recordCount"), "records"))
+          .toAst(),
+      ),
+    ).toEqual({
+      query:
+        "MATCH (node:Person)\nWITH [field IN $identityFields | toString(node[field])] AS identityValues, count(node) AS recordCount\nWHERE (all(value IN identityValues WHERE (value IS NOT NULL) AND (value <> $p0))) AND (recordCount > $p1)\nRETURN count(*) AS groups, sum(recordCount) AS records",
+      params: {
+        p0: "",
+        p1: 1,
+      },
+    });
+  });
+
+  it("executes dynamic property access and mapped lists against memory values", () => {
+    const record = node("node", "Person");
+
+    expect(
+      executeMemory(
+        query()
+          .match(record)
+          .with(
+            expr(
+              mapList(
+                "field",
+                param("identityFields"),
+                toString(dynamicProp(record, listItem("field"))),
+              ),
+              "identityValues",
+            ),
+            count(record, "recordCount"),
+          )
+          .where(
+            and(
+              allInList(
+                "value",
+                variable("identityValues"),
+                and(isNotNull(listItem("value")), neq(listItem("value"), "")),
+              ),
+              gt(variable("recordCount"), 1),
+            ),
+          )
+          .return(countAll("groups"), sum(variable("recordCount"), "records"))
+          .toAst(),
+        {
+          nodes: [
+            { id: "node-1", labels: ["Person"], properties: { email: "ada@example.com", externalId: "1" } },
+            { id: "node-2", labels: ["Person"], properties: { email: "ada@example.com", externalId: "1" } },
+            { id: "node-3", labels: ["Person"], properties: { email: "", externalId: "2" } },
+            { id: "node-4", labels: ["Person"], properties: { email: "grace@example.com" } },
+          ],
+          edges: [],
+        },
+        { params: { identityFields: ["email", "externalId"] } },
+      ),
+    ).toEqual([{ groups: 1, records: 2 }]);
   });
 
   it("compiles scalar conversion, math, and properties expressions to Cypher", () => {

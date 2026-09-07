@@ -36,9 +36,11 @@ export type ValueExpression =
   | VariableExpression
   | AliasExpression
   | MapPropertyExpression
+  | DynamicPropertyExpression
   | MapExpression
   | ListIndexExpression
   | ListComprehensionExpression
+  | ListMapExpression
   | AggregateValueExpression
   | FunctionExpression
   | ArithmeticExpression
@@ -114,6 +116,15 @@ export type MapPropertyExpression = {
 };
 
 /**
+ * Dynamic property lookup expression, such as `node[field]`.
+ */
+export type DynamicPropertyExpression = {
+  kind: "dynamicProperty";
+  source: ValueExpression;
+  key: ValueExpression;
+};
+
+/**
  * Inline map value expression, such as `{ nodeId: elementId(n) }`.
  */
 export type MapExpression = {
@@ -138,6 +149,16 @@ export type ListComprehensionExpression = {
   alias: string;
   source: ValueExpression;
   predicate: PredicateExpression;
+};
+
+/**
+ * List mapping expression, such as `[field IN fields | node[field]]`.
+ */
+export type ListMapExpression = {
+  kind: "listMap";
+  alias: string;
+  source: ValueExpression;
+  expression: ValueExpression;
 };
 
 /**

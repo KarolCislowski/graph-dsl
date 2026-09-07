@@ -989,6 +989,24 @@ export function mapProp(source: ValueExpression, key: string): ValueExpression {
 }
 
 /**
+ * Creates a dynamic property lookup, such as `node[field]`.
+ *
+ * @param source - Node, edge, alias, or map-like value expression.
+ * @param key - Property key expression.
+ * @returns A dynamic property value expression.
+ */
+export function dynamicProp(
+  source: AnyAliasTargetInput | ValueExpression,
+  key: ValueExpression | Primitive,
+): ValueExpression {
+  return {
+    kind: "dynamicProperty",
+    source: isValueExpression(source) ? source : anyAliasTargetToExpression(source),
+    key: normalizeValueInput(key),
+  };
+}
+
+/**
  * Creates a return selection for a property.
  *
  * @param ref - Node reference or alias string.
@@ -1228,6 +1246,27 @@ export function filterList(
     alias,
     source,
     predicate,
+  };
+}
+
+/**
+ * Creates a list mapping expression.
+ *
+ * @param alias - Item alias used by the mapped expression.
+ * @param source - List-producing expression to map.
+ * @param expression - Expression evaluated for each list item.
+ * @returns A list mapping value expression.
+ */
+export function mapList(
+  alias: string,
+  source: ValueExpression,
+  expression: ValueExpression,
+): ValueExpression {
+  return {
+    kind: "listMap",
+    alias,
+    source,
+    expression,
   };
 }
 
@@ -1834,7 +1873,7 @@ function assertWritePatterns(method: "create" | "merge", patterns: Pattern[]): v
 }
 
 function orderExpressionToAst(expression: ValueExpression | OrderExpression): OrderExpression {
-  if ("expression" in expression) {
+  if ("direction" in expression) {
     return expression;
   }
 
@@ -2064,9 +2103,11 @@ function isValueExpression(value: unknown): value is ValueExpression {
       value.kind === "variable" ||
       value.kind === "aliasRef" ||
       value.kind === "mapProperty" ||
+      value.kind === "dynamicProperty" ||
       value.kind === "mapValue" ||
       value.kind === "listIndex" ||
       value.kind === "listComprehension" ||
+      value.kind === "listMap" ||
       value.kind === "aggregateValue" ||
       value.kind === "function" ||
       value.kind === "arithmetic" ||

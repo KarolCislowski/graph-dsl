@@ -164,6 +164,28 @@ export function evaluateValue(
 
       return null;
     }
+    case "dynamicProperty": {
+      const source = evaluateValue(expression.source, binding, context);
+      const key = evaluateValue(expression.key, binding, context);
+
+      if (typeof key !== "string") {
+        return null;
+      }
+
+      if (isNode(source) || isEdge(source)) {
+        return source.properties[key] ?? null;
+      }
+
+      if (isRowObject(source)) {
+        return source[key] ?? null;
+      }
+
+      if (typeof source === "object" && source !== null && !Array.isArray(source) && !isPath(source)) {
+        return (source as Record<string, MemoryValue>)[key] ?? null;
+      }
+
+      return null;
+    }
     case "mapValue":
       return Object.fromEntries(
         Object.entries(expression.fields).map(([key, value]) => [
@@ -198,6 +220,23 @@ export function evaluateValue(
 
       return source.filter((item) =>
         evaluatePredicate(expression.predicate, binding, {
+          ...context,
+          listItems: {
+            ...(context.listItems ?? {}),
+            [expression.alias]: item,
+          },
+        }),
+      );
+    }
+    case "listMap": {
+      const source = evaluateValue(expression.source, binding, context);
+
+      if (!Array.isArray(source)) {
+        return [];
+      }
+
+      return source.map((item) =>
+        evaluateValue(expression.expression, binding, {
           ...context,
           listItems: {
             ...(context.listItems ?? {}),
