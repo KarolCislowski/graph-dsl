@@ -1,7 +1,6 @@
 {
   "name": "graph-dsl",
   "version": "0.1.0",
-  "private": true,
   "description": "A typed graph query DSL that emits a portable AST and compiles to graph backends.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -17,6 +16,7 @@
   "files": [
     "dist"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "prepare": "npm run build",
@@ -30,7 +30,18 @@
     "gremlin",
     "neo4j"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/KarolCislowski/graph-dsl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KarolCislowski/graph-dsl/issues"
+  },
+  "homepage": "https://github.com/KarolCislowski/graph-dsl#readme",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "tsup": "^8.1.0",

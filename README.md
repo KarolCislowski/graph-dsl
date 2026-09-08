@@ -38,16 +38,8 @@ The current package is an MVP. It already supports a neutral AST, a fluent DSL, 
 
 ## Installation
 
-This package is private and is currently intended to be installed directly from the private GitHub repository over SSH.
-
 ```bash
-npm install git+ssh://git@github.com/KarolCislowski/graph-dsl.git
-```
-
-You can also pin a branch, tag, or commit:
-
-```bash
-npm install git+ssh://git@github.com/KarolCislowski/graph-dsl.git#main
+npm install graph-dsl
 ```
 
 For local development in this repository:
