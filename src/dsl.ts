@@ -352,9 +352,16 @@ export class PathRef {
 }
 
 /**
+ * Object supporting conversion to a query AST.
+ */
+interface QueryExpression {
+  toAst(): QueryAst;
+}
+
+/**
  * Immutable fluent builder for constructing a graph query AST.
  */
-export class QueryBuilder {
+export abstract class AbstractQueryBuilder implements QueryExpression {
   /**
    * Creates a query builder.
    *
@@ -367,6 +374,29 @@ export class QueryBuilder {
   ) {}
 
   /**
+   * Creates a new query builder with the given AST and scope properties.
+   * Used to support extending query builders despite chaining pattern.
+   *
+   * @param ast - The new AST state.
+   * @param scopeProperties - The new scope properties.
+   * @returns A new query builder with the given AST and scope properties.
+   * @protected
+   */
+  protected abstract createBuilder(
+    ast: QueryAst,
+    scopeProperties: ScopeProperties
+  ): this;
+
+  private isQueryExpression(value: unknown): value is QueryExpression {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "toAst" in value &&
+      typeof value.toAst === "function"
+    );
+  }
+
+  /**
    * Applies properties to every node and edge in later query clauses.
    *
    * If a pattern explicitly defines the same property as the scope, the builder
@@ -375,8 +405,8 @@ export class QueryBuilder {
    * @param properties - Scope properties, typically tenant/workspace/org identifiers.
    * @returns A new query builder with the scope configured.
    */
-  scope(properties: Record<string, ValueExpression | Primitive>): QueryBuilder {
-    return new QueryBuilder(this.ast, normalizeProperties(properties));
+  scope(properties: Record<string, ValueExpression | Primitive>): this {
+    return this.createBuilder(this.ast, normalizeProperties(properties));
   }
 
   /**
@@ -389,7 +419,7 @@ export class QueryBuilder {
    * @param as - Alias used to reference each item with `row(as, key)`.
    * @returns A new query builder with the unwind clause appended.
    */
-  unwind(source: ValueExpression, as: string): QueryBuilder {
+  unwind(source: ValueExpression, as: string): this {
     return this.addClause({
       kind: "unwind",
       source,
@@ -403,7 +433,7 @@ export class QueryBuilder {
    * @param patterns - Node, edge, path, or raw AST patterns to match.
    * @returns A new query builder with the match clause appended.
    */
-  match(...patterns: Array<NodeRef | EdgeRef | PathRef | Pattern>): QueryBuilder {
+  match(...patterns: Array<NodeRef | EdgeRef | PathRef | Pattern>): this {
     return this.addClause({
       kind: "match",
       patterns: patterns.flatMap(patternToAst).map((pattern) => applyScope(pattern, this.scopeProperties)),
@@ -419,7 +449,7 @@ export class QueryBuilder {
    * @param patterns - Node, edge, path, or raw AST patterns to optionally match.
    * @returns A new query builder with the optional match clause appended.
    */
-  optionalMatch(...patterns: Array<NodeRef | EdgeRef | PathRef | Pattern>): QueryBuilder {
+  optionalMatch(...patterns: Array<NodeRef | EdgeRef | PathRef | Pattern>): this {
     this.assertHasRequiredMatch();
 
     return this.addClause({
@@ -434,7 +464,7 @@ export class QueryBuilder {
    * @param patterns - Node, edge, or raw AST patterns to create.
    * @returns A new query builder with the create clause appended.
    */
-  create(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
+  create(...patterns: Array<NodeRef | EdgeRef | Pattern>): this {
     const astPatterns = patterns.flatMap(patternToAst);
     assertWritePatterns("create", astPatterns);
 
@@ -453,7 +483,7 @@ export class QueryBuilder {
    * @param patterns - Node, edge, or raw AST patterns to merge.
    * @returns A new query builder with the merge clause appended.
    */
-  merge(...patterns: Array<NodeRef | EdgeRef | Pattern>): QueryBuilder {
+  merge(...patterns: Array<NodeRef | EdgeRef | Pattern>): this {
     const astPatterns = patterns.flatMap(patternToAst);
     assertWritePatterns("merge", astPatterns);
 
@@ -472,7 +502,7 @@ export class QueryBuilder {
    * @param edges - Edge references or raw edge patterns to create.
    * @returns A new query builder with the create-edge clause appended.
    */
-  createEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
+  createEdge(...edges: Array<EdgeRef | EdgePattern>): this {
     return this.addClause({
       kind: "createEdge",
       edges: edges.map((edge) => applyScopeToEdge(edge instanceof EdgeRef ? edge.toPattern() : edge, this.scopeProperties)),
@@ -488,7 +518,7 @@ export class QueryBuilder {
    * @param edges - Edge references or raw edge patterns to merge.
    * @returns A new query builder with the merge-edge clause appended.
    */
-  mergeEdge(...edges: Array<EdgeRef | EdgePattern>): QueryBuilder {
+  mergeEdge(...edges: Array<EdgeRef | EdgePattern>): this {
     return this.addClause({
       kind: "mergeEdge",
       edges: edges.map((edge) => applyScopeToEdge(edge instanceof EdgeRef ? edge.toPattern() : edge, this.scopeProperties)),
@@ -501,7 +531,7 @@ export class QueryBuilder {
    * @param predicate - Boolean predicate used to filter the current bindings.
    * @returns A new query builder with the where clause appended.
    */
-  where(predicate: PredicateExpression): QueryBuilder {
+  where(predicate: PredicateExpression): this {
     return this.addClause({ kind: "where", predicate });
   }
 
@@ -511,7 +541,7 @@ export class QueryBuilder {
    * @param selections - Aliases or properties to project.
    * @returns A new query builder with the return clause appended.
    */
-  return(...selections: Array<NodeRef | PathRef | string | ReturnSelection | ValueExpression>): QueryBuilder {
+  return(...selections: Array<NodeRef | PathRef | string | ReturnSelection | ValueExpression>): this {
     return this.addClause({
       kind: "return",
       selections: selections.map(selectionToAst),
@@ -524,7 +554,7 @@ export class QueryBuilder {
    * @param selections - Aliases, properties, aggregates, maps, or expressions to keep.
    * @returns A new query builder with the with clause appended.
    */
-  with(...selections: Array<NodeRef | PathRef | string | ReturnSelection | ValueExpression>): QueryBuilder {
+  with(...selections: Array<NodeRef | PathRef | string | ReturnSelection | ValueExpression>): this {
     return this.addClause({
       kind: "with",
       selections: selections.map(selectionToAst),
@@ -537,7 +567,7 @@ export class QueryBuilder {
    * @param expressions - Value expressions or explicit order expressions.
    * @returns A new query builder with the order-by clause appended.
    */
-  orderBy(...expressions: Array<ValueExpression | OrderExpression>): QueryBuilder {
+  orderBy(...expressions: Array<ValueExpression | OrderExpression>): this {
     return this.addClause({
       kind: "orderBy",
       expressions: expressions.map(orderExpressionToAst),
@@ -550,7 +580,7 @@ export class QueryBuilder {
    * @param count - Non-negative integer or parameter expression.
    * @returns A new query builder with the skip clause appended.
    */
-  skip(count: ResultCountInput): QueryBuilder {
+  skip(count: ResultCountInput): this {
     return this.addClause({
       kind: "skip",
       count: normalizeResultCount("skip", count),
@@ -563,7 +593,7 @@ export class QueryBuilder {
    * @param count - Non-negative integer or parameter expression.
    * @returns A new query builder with the limit clause appended.
    */
-  limit(count: ResultCountInput): QueryBuilder {
+  limit(count: ResultCountInput): this {
     return this.addClause({
       kind: "limit",
       count: normalizeResultCount("limit", count),
@@ -580,10 +610,10 @@ export class QueryBuilder {
    * @param options - Optional imported aliases.
    * @returns A new query builder with the call clause appended.
    */
-  call(subquery: QueryBuilder | QueryAst, options: CallOptions = {}): QueryBuilder {
+  call(subquery: this | QueryAst, options: CallOptions = {}): this {
     return this.addClause({
       kind: "call",
-      query: subquery instanceof QueryBuilder ? subquery.toAst() : structuredClone(subquery),
+      query: this.isQueryExpression(subquery) ? subquery.toAst() : structuredClone(subquery),
       importAliases: (options.import ?? []).map(normalizeAlias),
     });
   }
@@ -595,7 +625,7 @@ export class QueryBuilder {
    * @param nextValue - New value expression or primitive literal.
    * @returns A new query builder with the set clause appended.
    */
-  set(property: ValueExpression, nextValue: ValueExpression | Primitive): QueryBuilder {
+  set(property: ValueExpression, nextValue: ValueExpression | Primitive): this {
     if (property.kind !== "property") {
       throw new Error("set() expects a property expression, for example set(user.prop(\"name\"), \"Ada\").");
     }
@@ -615,7 +645,7 @@ export class QueryBuilder {
    * @param mapExpression - Map-producing expression to merge into the entity.
    * @returns A new query builder with the set-map clause appended.
    */
-  setMap(alias: NodeRef | EdgeRef | string, mapExpression: ValueExpression): QueryBuilder {
+  setMap(alias: NodeRef | EdgeRef | string, mapExpression: ValueExpression): this {
     return this.addClause({
       kind: "setMap",
       alias: normalizeDeleteAlias(alias),
@@ -630,7 +660,7 @@ export class QueryBuilder {
    * @param nextValue - New value expression or primitive literal.
    * @returns A new query builder with the on-create set clause appended.
    */
-  onCreateSet(property: ValueExpression, nextValue: ValueExpression | Primitive): QueryBuilder {
+  onCreateSet(property: ValueExpression, nextValue: ValueExpression | Primitive): this {
     this.assertCanAddMergeSet("onCreateSet");
 
     if (property.kind !== "property") {
@@ -652,7 +682,7 @@ export class QueryBuilder {
    * @param nextValue - New value expression or primitive literal.
    * @returns A new query builder with the on-match set clause appended.
    */
-  onMatchSet(property: ValueExpression, nextValue: ValueExpression | Primitive): QueryBuilder {
+  onMatchSet(property: ValueExpression, nextValue: ValueExpression | Primitive): this {
     this.assertCanAddMergeSet("onMatchSet");
 
     if (property.kind !== "property") {
@@ -676,10 +706,10 @@ export class QueryBuilder {
    * @param patch - Collection of property assignments to apply.
    * @returns A new query builder with all set clauses appended.
    */
-  setProps(patch: PropertySetCollection): QueryBuilder {
+  setProps(patch: PropertySetCollection): this {
     return patch.sets.reduce(
       (builder, assignment) => builder.set(assignment.property, assignment.value),
-      this as QueryBuilder,
+      this,
     );
   }
 
@@ -689,10 +719,10 @@ export class QueryBuilder {
    * @param patch - Collection of property assignments to apply.
    * @returns A new query builder with all on-create set clauses appended.
    */
-  onCreateSetProps(patch: PropertySetCollection): QueryBuilder {
+  onCreateSetProps(patch: PropertySetCollection): this {
     return patch.sets.reduce(
       (builder, assignment) => builder.onCreateSet(assignment.property, assignment.value),
-      this as QueryBuilder,
+      this,
     );
   }
 
@@ -702,10 +732,10 @@ export class QueryBuilder {
    * @param patch - Collection of property assignments to apply.
    * @returns A new query builder with all on-match set clauses appended.
    */
-  onMatchSetProps(patch: PropertySetCollection): QueryBuilder {
+  onMatchSetProps(patch: PropertySetCollection): this {
     return patch.sets.reduce(
       (builder, assignment) => builder.onMatchSet(assignment.property, assignment.value),
-      this as QueryBuilder,
+      this,
     );
   }
 
@@ -715,7 +745,7 @@ export class QueryBuilder {
    * @param aliases - Node references, aliased edge references, or alias strings to delete.
    * @returns A new query builder with the delete clause appended.
    */
-  delete(...aliases: Array<NodeRef | EdgeRef | string>): QueryBuilder {
+  delete(...aliases: Array<NodeRef | EdgeRef | string>): this {
     return this.addClause({
       kind: "delete",
       aliases: aliases.map((alias) => normalizeDeleteAlias(alias)),
@@ -730,7 +760,7 @@ export class QueryBuilder {
    * @param aliases - Node references, aliased edge references, or alias strings to delete.
    * @returns A new query builder with the detach-delete clause appended.
    */
-  detachDelete(...aliases: Array<NodeRef | EdgeRef | string>): QueryBuilder {
+  detachDelete(...aliases: Array<NodeRef | EdgeRef | string>): this {
     return this.addClause({
       kind: "detachDelete",
       aliases: aliases.map((alias) => normalizeDeleteAlias(alias)),
@@ -752,8 +782,8 @@ export class QueryBuilder {
     };
   }
 
-  private addClause(clause: QueryAst["clauses"][number]): QueryBuilder {
-    return new QueryBuilder({
+  private addClause(clause: QueryAst["clauses"][number]): this {
+    return this.createBuilder({
       kind: "query",
       clauses: [...this.ast.clauses, clause],
     }, this.scopeProperties);
@@ -820,12 +850,25 @@ function normalizeAlias(alias: NodeRef | EdgeRef | PathRef | string): string {
 }
 
 /**
+ * Default QueryBuilder implementation.
+ */
+export class QueryBuilder extends AbstractQueryBuilder {
+  protected createBuilder(ast: QueryAst, scopeProperties: ScopeProperties): this {
+    return new QueryBuilder(ast, scopeProperties) as this;
+  }
+}
+
+/**
  * Creates an empty query builder.
+ *
+ * @param Builder - Optional query builder class to use. Defaults to {@link QueryBuilder}.
  *
  * @returns A new query builder.
  */
-export function query(): QueryBuilder {
-  return new QueryBuilder();
+export function query<T extends AbstractQueryBuilder>(
+  Builder: new () => T = QueryBuilder as unknown as new () => T
+): T {
+  return new Builder();
 }
 
 /**

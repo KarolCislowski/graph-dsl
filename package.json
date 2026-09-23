@@ -43,9 +43,12 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@types/node": "^20.14.10",
-    "tsup": "^8.1.0",
+    "@types/node": "^24",
+    "tsup": "^8.5.0",
     "typescript": "^5.5.3",
-    "vitest": "^1.6.0"
+    "vitest": "^5"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }

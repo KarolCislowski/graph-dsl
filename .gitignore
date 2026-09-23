@@ -145,3 +145,6 @@ vite.config.ts.timestamp-*
 # Local planning notes
 LOCAL_MIGRATION_NOTES.md
 linkedin_promo/
+
+# Jetbrains IDE files
+.idea
